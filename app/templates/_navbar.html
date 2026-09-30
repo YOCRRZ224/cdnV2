@@ -13,13 +13,32 @@
     max-width: var(--ui-width); margin: 0 auto; padding: 0.75rem 1rem;
 }
 .wordmark { font-weight: 600; font-size: 1rem; color: var(--ui-text) !important; text-decoration: none !important; white-space: nowrap; }
-.navlinks { display: flex; align-items: center; gap: 0.25rem; overflow-x: auto; }
+.navlinks { display: flex; align-items: center; gap: 0.25rem; }
 .navlinks a {
-    padding: 0.4rem 0.7rem; border-radius: var(--ui-radius);
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.4rem 0.65rem; border-radius: var(--ui-radius);
     color: var(--ui-muted); font-size: 0.9rem; text-decoration: none; white-space: nowrap;
 }
+.navlinks a svg { flex-shrink: 0; }
 .navlinks a:hover { color: var(--ui-text); background: var(--ui-surface); }
 .navlinks a.active { color: var(--ui-accent); background: var(--ui-accent-bg); font-weight: 500; }
+.nav-toggle {
+    display: none; align-items: center; justify-content: center;
+    width: 2.25rem; height: 2.25rem; padding: 0;
+    background: transparent; border: 1px solid var(--ui-border); border-radius: var(--ui-radius);
+    color: var(--ui-text); cursor: pointer;
+}
+.nav-toggle:hover { background: var(--ui-surface); }
+.nav-toggle .icon-close { display: none; }
+.nav-toggle[aria-expanded="true"] .icon-open { display: none; }
+.nav-toggle[aria-expanded="true"] .icon-close { display: block; }
+@media (max-width: 720px) {
+    .navbar { flex-wrap: wrap; }
+    .nav-toggle { display: inline-flex; }
+    .navlinks { display: none; flex-basis: 100%; flex-direction: column; align-items: stretch; gap: 0.15rem; padding-top: 0.5rem; }
+    .navlinks.open { display: flex; }
+    .navlinks a { padding: 0.65rem 0.75rem; font-size: 1rem; }
+}
 .breadcrumb-container { max-width: var(--ui-width); margin: 0 auto; padding: 0 1rem 0.75rem; }
 .breadcrumb {
     display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
@@ -48,13 +67,14 @@
 <div class="navbar-wrapper">
     <header class="navbar">
         <a href="/" class="wordmark">amit/cdn</a>
-        <nav class="navlinks" aria-label="Primary">
-            <a href="/find" class="{{ 'active' if page == 'search' }}"{{ ' aria-current="page"'|safe if page == 'search' }}>Find</a>
-            <a href="/new" class="{{ 'active' if page == 'upload' }}"{{ ' aria-current="page"'|safe if page == 'upload' }}>Upload</a>
-            <a href="/gh-sync" class="{{ 'active' if page == 'gh-sync' }}"{{ ' aria-current="page"'|safe if page == 'gh-sync' }}>Sync</a>
-            <a href="/documentation" class="{{ 'active' if page == 'documentation' }}"{{ ' aria-current="page"'|safe if page == 'documentation' }}>Docs</a>
-            <a href="/history" class="{{ 'active' if page == 'history' }}"{{ ' aria-current="page"'|safe if page == 'history' }}>History</a>
-            <a href="/shorten" class="{{ 'active' if page == 'shorten' }}"{{ ' aria-current="page"'|safe if page == 'shorten' }}>Shorten</a>
+        <button type="button" class="nav-toggle" aria-label="Toggle menu" aria-expanded="false" aria-controls="primary-nav" onclick="var o=document.getElementById('primary-nav').classList.toggle('open');this.setAttribute('aria-expanded',o)"><svg class="icon-open" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg><svg class="icon-close" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
+        <nav class="navlinks" id="primary-nav" aria-label="Primary">
+            <a href="/find" class="{{ 'active' if page == 'search' }}"{{ ' aria-current="page"'|safe if page == 'search' }}><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><span>Find</span></a>
+            <a href="/new" class="{{ 'active' if page == 'upload' }}"{{ ' aria-current="page"'|safe if page == 'upload' }}><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><span>Upload</span></a>
+            <a href="/gh-sync" class="{{ 'active' if page == 'gh-sync' }}"{{ ' aria-current="page"'|safe if page == 'gh-sync' }}><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg><span>Sync</span></a>
+            <a href="/documentation" class="{{ 'active' if page == 'documentation' }}"{{ ' aria-current="page"'|safe if page == 'documentation' }}><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><span>Docs</span></a>
+            <a href="/history" class="{{ 'active' if page == 'history' }}"{{ ' aria-current="page"'|safe if page == 'history' }}><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span>History</span></a>
+            <a href="/shorten" class="{{ 'active' if page == 'shorten' }}"{{ ' aria-current="page"'|safe if page == 'shorten' }}><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg><span>Shorten</span></a>
         </nav>
     </header>
     {% if not (page == 'listing' and not path) %}

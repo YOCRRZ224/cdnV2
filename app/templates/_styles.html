@@ -1,0 +1,35 @@
+<style>
+/* Shared design tokens (light by default, dark via prefers-color-scheme).
+   Prefixed --ui- so they never collide with a page's own legacy variables
+   while pages are being migrated. Included once, via _navbar.html. */
+:root {
+    color-scheme: light dark;
+    --ui-bg: #ffffff;
+    --ui-surface: #f6f8fa;
+    --ui-border: #d0d7de;
+    --ui-text: #1f2328;
+    --ui-muted: #59636e;
+    --ui-accent: #0b5fff;
+    --ui-accent-bg: #eaf1ff;
+    --ui-danger: #cf222e;
+    --ui-success: #1a7f37;
+    --ui-font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --ui-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --ui-radius: 6px;
+    --ui-width: 960px;
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --ui-bg: #0d1117;
+        --ui-surface: #161b22;
+        --ui-border: #30363d;
+        --ui-text: #e6edf3;
+        --ui-muted: #9198a1;
+        --ui-accent: #4c8dff;
+        --ui-accent-bg: #12233f;
+        --ui-danger: #f85149;
+        --ui-success: #3fb950;
+    }
+}
+:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+</style>

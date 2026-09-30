@@ -1,184 +1,60 @@
+{% include "_styles.html" %}
 <style>
-/* Shared navbar - single source of truth, included via this partial on every
-   page. Self-contained with its own hardcoded values rather than each page's local theme variables, so it looks and behaves
-   identically everywhere regardless of what a given page's own :root defines. */
+/* Navbar + breadcrumb. Uses the shared --ui- tokens from _styles.html. */
 .navbar-wrapper {
-    position: sticky;
-    top: 0;
-    z-index: 100;
-    background: #09090b;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    margin-bottom: 2.75rem;
-    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.2);
+    position: sticky; top: 0; z-index: 100;
+    background: var(--ui-bg);
+    border-bottom: 1px solid var(--ui-border);
+    margin-bottom: 1.5rem;
+    font-family: var(--ui-font);
 }
 .navbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1.25rem 5%;
-    max-width: 1000px;
-    margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    max-width: var(--ui-width); margin: 0 auto; padding: 0.75rem 1rem;
 }
-.wordmark {
-    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-weight: 500;
-    font-size: 1.1rem;
-    color: #f4f4f5 !important;
-    text-decoration: none !important;
-    letter-spacing: -0.01em;
-    transition: opacity 0.2s;
-}
-.wordmark:hover { opacity: 0.8; }
-.wordmark-slash { color: #818cf8; }
-.navlinks {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-}
+.wordmark { font-weight: 600; font-size: 1rem; color: var(--ui-text) !important; text-decoration: none !important; white-space: nowrap; }
+.navlinks { display: flex; align-items: center; gap: 0.25rem; overflow-x: auto; }
 .navlinks a {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.1rem;
-    height: 2.1rem;
-    color: #b8b8c0;
-    border-radius: 8px;
-    transition: all 0.2s ease;
-    padding: 0;
+    padding: 0.4rem 0.7rem; border-radius: var(--ui-radius);
+    color: var(--ui-muted); font-size: 0.9rem; text-decoration: none; white-space: nowrap;
 }
-.navlinks a:hover {
-    color: #f4f4f5;
-    background: rgba(255, 255, 255, 0.05);
-}
-.navlinks a.active {
-    color: #818cf8;
-    background: rgba(129, 140, 248, 0.12);
-}
-.breadcrumb-container {
-    max-width: 1000px;
-    margin: 0 auto;
-    padding: 0 5% 1rem 5%;
-    background: #09090b;
-}
+.navlinks a:hover { color: var(--ui-text); background: var(--ui-surface); }
+.navlinks a.active { color: var(--ui-accent); background: var(--ui-accent-bg); font-weight: 500; }
+.breadcrumb-container { max-width: var(--ui-width); margin: 0 auto; padding: 0 1rem 0.75rem; }
 .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    color: #b8b8c0;
-    font-weight: 500;
-    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.85rem;
+    display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+    color: var(--ui-muted); font-family: var(--ui-mono); font-size: 0.85rem;
 }
-.breadcrumb a {
-    color: #f4f4f5;
-    text-decoration: none;
-    padding: 0.2rem 0.4rem;
-    margin: -0.2rem -0.4rem;
-    border-radius: 4px;
-    transition: background 0.15s, color 0.15s;
+.breadcrumb a { color: var(--ui-accent); text-decoration: none; }
+.breadcrumb a:hover { text-decoration: underline; }
+.breadcrumb-collapsed { position: relative; display: inline-flex; }
+.breadcrumb-ellipsis, .copy-path-btn {
+    background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: var(--ui-radius);
+    color: var(--ui-muted); cursor: pointer; font: inherit; line-height: 1.4;
 }
-.breadcrumb a:hover {
-    color: #818cf8;
-    background: #1e1e22;
-    text-decoration: none;
-}
-.breadcrumb-collapsed {
-    position: relative;
-    display: inline-flex;
-}
-.breadcrumb-ellipsis {
-    background: #121214;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: #b8b8c0;
-    border-radius: 6px;
-    padding: 0.25rem 0.75rem;
-    cursor: pointer;
-    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.9rem;
-    line-height: 1.4;
-    transition: all 0.2s;
-}
-.breadcrumb-ellipsis:hover {
-    color: #f4f4f5;
-    border-color: rgba(255, 255, 255, 0.15);
-    background: #1e1e22;
-}
+.breadcrumb-ellipsis { padding: 0.1rem 0.6rem; }
+.copy-path-btn { display: inline-flex; align-items: center; justify-content: center; padding: 0.3rem; margin-left: 0.4rem; }
+.breadcrumb-ellipsis:hover, .copy-path-btn:hover { color: var(--ui-text); border-color: var(--ui-muted); }
 .breadcrumb-menu {
-    display: none;
-    position: absolute;
-    top: calc(100% + 8px);
-    left: 0;
-    min-width: 180px;
-    max-width: 70vw;
-    max-height: 260px;
-    overflow-y: auto;
-    background: #121214;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    padding: 0.5rem;
-    flex-direction: column;
-    gap: 0.25rem;
-    z-index: 20;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    display: none; position: absolute; top: calc(100% + 6px); left: 0;
+    min-width: 180px; max-width: 70vw; max-height: 260px; overflow-y: auto;
+    flex-direction: column; gap: 0.15rem; padding: 0.35rem; z-index: 20;
+    background: var(--ui-bg); border: 1px solid var(--ui-border); border-radius: var(--ui-radius);
 }
 .breadcrumb-menu.open { display: flex; }
-.breadcrumb-menu a {
-    padding: 0.75rem 1rem;
-    border-radius: 6px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    margin: 0;
-}
-.copy-path-btn {
-    background: #121214;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 6px;
-    color: #b8b8c0;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.4rem;
-    margin-left: 0.5rem;
-    transition: all 0.2s;
-}
-.copy-path-btn:hover {
-    color: #f4f4f5;
-    border-color: rgba(255, 255, 255, 0.15);
-    background: #1e1e22;
-}
-.copy-path-btn:active {
-    transform: scale(0.95);
-}
-@media (max-width: 480px) {
-    .navbar { padding: 1rem 1.25rem; }
-    .navlinks { gap: 0.25rem; }
-}
+.breadcrumb-menu a { padding: 0.5rem 0.75rem; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.breadcrumb-menu a:hover { background: var(--ui-surface); text-decoration: none; }
 </style>
 <div class="navbar-wrapper">
     <header class="navbar">
-        <a href="/" class="wordmark">amit<span class="wordmark-slash">/</span>cdn</a>
-        <nav class="navlinks">
-            <a href="/find" class="{{ 'active' if page == 'search' }}" title="Find" aria-label="Find"{{ ' aria-current="page"'|safe if page == 'search' }}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            </a>
-            <a href="/new" class="{{ 'active' if page == 'upload' }}" title="New / Upload" aria-label="New / Upload"{{ ' aria-current="page"'|safe if page == 'upload' }}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            </a>
-            <a href="/gh-sync" class="{{ 'active' if page == 'gh-sync' }}" title="GitHub Actions Sync" aria-label="GitHub Actions Sync"{{ ' aria-current="page"'|safe if page == 'gh-sync' }}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-            </a>
-            <a href="/documentation" class="{{ 'active' if page == 'documentation' }}" title="Documentation" aria-label="Documentation"{{ ' aria-current="page"'|safe if page == 'documentation' }}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-            </a>
-            <a href="/history" class="{{ 'active' if page == 'history' }}" title="History" aria-label="History"{{ ' aria-current="page"'|safe if page == 'history' }}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </a>
-            <a href="/shorten" class="{{ 'active' if page == 'shorten' }}" title="URL Shortener" aria-label="URL Shortener"{{ ' aria-current="page"'|safe if page == 'shorten' }}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-            </a>
+        <a href="/" class="wordmark">amit/cdn</a>
+        <nav class="navlinks" aria-label="Primary">
+            <a href="/find" class="{{ 'active' if page == 'search' }}"{{ ' aria-current="page"'|safe if page == 'search' }}>Find</a>
+            <a href="/new" class="{{ 'active' if page == 'upload' }}"{{ ' aria-current="page"'|safe if page == 'upload' }}>Upload</a>
+            <a href="/gh-sync" class="{{ 'active' if page == 'gh-sync' }}"{{ ' aria-current="page"'|safe if page == 'gh-sync' }}>Sync</a>
+            <a href="/documentation" class="{{ 'active' if page == 'documentation' }}"{{ ' aria-current="page"'|safe if page == 'documentation' }}>Docs</a>
+            <a href="/history" class="{{ 'active' if page == 'history' }}"{{ ' aria-current="page"'|safe if page == 'history' }}>History</a>
+            <a href="/shorten" class="{{ 'active' if page == 'shorten' }}"{{ ' aria-current="page"'|safe if page == 'shorten' }}>Shorten</a>
         </nav>
     </header>
     {% if not (page == 'listing' and not path) %}

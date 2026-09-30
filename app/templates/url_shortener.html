@@ -26,7 +26,7 @@
             --text-dim: var(--ui-muted);
             --accent-primary: var(--ui-accent);
             --accent-primary-hover: var(--ui-accent);
-            --accent-secondary: var(--ui-accent);
+            --accent-secondary: var(--ui-accent-solid);
             --success: var(--ui-success);
             --danger: var(--ui-danger);
             --border: var(--ui-border);
@@ -145,8 +145,8 @@
         .btn:hover:not(:disabled) { background: var(--surface-3); border-color: var(--border-hover); text-decoration: none; color: var(--text-main); }
         .btn:active:not(:disabled) { transform: scale(0.97); }
         .btn:disabled { opacity: 0.6; cursor: not-allowed; }
-        .btn-primary { background: var(--accent-primary) !important; color: #ffffff !important; border-color: var(--accent-primary) !important; font-weight: 600; transition: none !important; }
-        .btn-primary:hover:not(:disabled), .btn-primary:focus:not(:disabled), .btn-primary:active:not(:disabled) { background: var(--accent-primary) !important; border-color: var(--accent-primary) !important; color: #ffffff !important; }
+        .btn-primary { background: var(--ui-accent-solid) !important; color: #ffffff !important; border-color: var(--ui-accent-solid) !important; font-weight: 600; transition: none !important; }
+        .btn-primary:hover:not(:disabled), .btn-primary:focus:not(:disabled), .btn-primary:active:not(:disabled) { background: var(--ui-accent-solid) !important; border-color: var(--ui-accent-solid) !important; color: #ffffff !important; }
         .btn-primary svg { stroke: #ffffff !important; }
         .icon-btn {
             display: inline-flex;

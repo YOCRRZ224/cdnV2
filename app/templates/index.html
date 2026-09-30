@@ -121,46 +121,6 @@
 
         .site-notice { margin-top: 0.5rem; }
 
-        .recent-activity {
-            margin-bottom: 2.25rem;
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            background: var(--surface);
-            overflow: hidden;
-        }
-        .recent-activity-heading {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            color: var(--text-dim);
-            font-size: 0.9rem;
-            font-weight: 500;
-            padding: 0.7rem 1rem;
-        }
-        .recent-activity-list {
-            list-style: none;
-            margin: 0;
-            padding: 0 1rem 0.6rem;
-        }
-        .recent-activity-list li {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            gap: 1rem;
-            padding: 0.35rem 0;
-            border-top: 1px solid var(--border);
-            font-size: 0.9rem;
-        }
-        .recent-activity-list li:first-child { border-top: none; }
-        .recent-activity-list a { text-decoration: none; }
-        .recent-activity-list a:hover { text-decoration: underline; }
-        .recent-activity-time {
-            color: var(--text-dim);
-            font-size: 0.8rem;
-            white-space: nowrap;
-            flex-shrink: 0;
-        }
-
         a { color: var(--accent-primary); text-decoration: none; transition: color 0.15s;}
         a:hover { color: var(--accent-primary-hover); text-decoration: underline; }
 
@@ -897,22 +857,6 @@
             <a href="/gh-sync">Sync</a> at the top to see how to set it up. Project assets live here;
             files and paths may change over time, so use direct links with that in mind.
         </blockquote>
-        {% if recent_activity %}
-        <div class="recent-activity" id="recent-activity">
-            <div class="recent-activity-heading">
-                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                <span>Recently modified</span>
-            </div>
-            <ul class="recent-activity-list">
-                {% for entry in recent_activity %}
-                <li>
-                    <a href="/{{ entry.path }}/">{{ entry.path }}/</a>
-                    {% if entry.iso_time %}<time class="recent-activity-time" datetime="{{ entry.iso_time }}">{{ entry.iso_time }}</time>{% endif %}
-                </li>
-                {% endfor %}
-            </ul>
-        </div>
-        {% endif %}
         {% endif %}
         
         {% if page == 'listing' %}
@@ -1957,24 +1901,6 @@
         }
     </script>
     <script>
-        // --- Recently modified: convert timestamps to the visitor's own timezone. ---
-        (function () {
-            document.querySelectorAll('.recent-activity-time[datetime]').forEach(function (el) {
-                var d = new Date(el.getAttribute('datetime'));
-                if (isNaN(d.getTime())) return;
-                var now = new Date();
-                var diffMs = now - d;
-                var diffMin = Math.round(diffMs / 60000);
-                var label;
-                if (diffMin < 1) label = 'just now';
-                else if (diffMin < 60) label = diffMin + 'm ago';
-                else if (diffMin < 60 * 24) label = Math.round(diffMin / 60) + 'h ago';
-                else label = d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-                el.textContent = label;
-                el.title = d.toLocaleString();
-            });
-        })();
-
         // --- Visited history: silently logs file/folder pages viewed on this browser,
         // shown on /history. localStorage only - there's no account system, so this is
         // per-browser, same limitation as ordinary browser history.

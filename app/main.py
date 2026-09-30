@@ -27,7 +27,6 @@ from .storage import (
     upload_temp_file,
     upload_folder_scoped,
     repo_stats,
-    get_recent_activity,
     search_files,
     write_batch_manifest,
     get_batch_manifest,
@@ -983,9 +982,6 @@ async def serve(request: Request, path: str):
         "items": items,
         "raw_base_url": RAW_BASE_URL,
     }
-
-    if not clean_path:
-        extra_ctx["recent_activity"] = await get_recent_activity()
 
     ctx = await render_context(extra_ctx)
 

@@ -971,6 +971,7 @@
                     </a>
                     <button onclick="copyToClipboard('{{ cdn_base_url }}/{{ path }}', this)" class="btn">Copy Link</button>
                     <button onclick="copyToClipboard('{{ raw_base_url }}/{{ path }}', this)" class="btn">Copy Raw Link</button>
+                    <button onclick="copyToClipboard('{{ cdn_base_url }}/api/get/{{ path | urlencode }}', this)" class="btn" title="Anyone opening this link downloads the file directly">Copy Download Link</button>
                 </div>
             </div>
         </div>

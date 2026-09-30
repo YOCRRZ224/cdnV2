@@ -10,21 +10,19 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png">
 <link rel="icon" type="image/svg+xml" href="/static/icons/logo.svg">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png">
-<meta name="theme-color" content="#09090b">
-<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d1117" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@500;600;700&family=Work+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #09090b;
-    --surface: #121214;
-    --surface-2: #1e1e22;
-    --border: #27272a;
-    --text: #f4f4f5;
-    --muted: #a1a1aa;
-    --accent: #818cf8;
+    --bg: var(--ui-bg);
+    --surface: var(--ui-surface);
+    --surface-2: var(--ui-surface);
+    --border: var(--ui-border);
+    --text: var(--ui-text);
+    --muted: var(--ui-muted);
+    --accent: var(--ui-accent);
   }
 
   *,
@@ -43,7 +41,7 @@
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: 'Work Sans', system-ui, sans-serif;
+    font-family: var(--ui-font);
     margin: 0;
     line-height: 1.6;
   }
@@ -55,7 +53,7 @@
   }
 
   h1 {
-    font-family: 'Zilla Slab', Georgia, 'Times New Roman', serif;
+    font-family: var(--ui-font);
     font-weight: 600;
     font-size: 1.9rem;
     margin-bottom: .2em;
@@ -73,7 +71,7 @@
   }
 
   code, pre {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--ui-mono);
   }
 
   code {

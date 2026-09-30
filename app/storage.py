@@ -224,59 +224,6 @@ async def repo_stats():
     _set_cache(cache_key, result)
     return result
 
-_UPLOAD_FILE_RE = re.compile(r"^Upload (.+?)(?: with huggingface_hub)?$")
-_GH_SYNC_RE = re.compile(r"^gh-sync: update (.+)$")
-
-def _do_list_repo_commits():
-    return list(api.list_repo_commits(repo_id=HF_REPO_ID, repo_type="dataset"))
-
-async def get_recent_activity(limit: int = 3):
-    """Recently changed top-level paths, newest first, deduped by path.
-
-    Derived from commit titles (list_repo_commits doesn't return changed
-    file paths directly), so this is best-effort: commits whose title
-    doesn't match one of this app's own upload patterns are skipped rather
-    than guessed at. Cached briefly since it's one extra HF API call.
-    """
-    cache_key = "recent_activity"
-    cached = _get_cache(cache_key)
-    if cached is not None:
-        return cached
-
-    try:
-        commits = await asyncio.to_thread(_do_list_repo_commits)
-    except Exception:
-        return []
-
-    seen_paths = set()
-    result = []
-    for commit in commits:
-        title = (commit.title or "").strip()
-        gh_match = _GH_SYNC_RE.match(title)
-        upload_match = _UPLOAD_FILE_RE.match(title) if not gh_match else None
-        if gh_match:
-            # already "owner/repo" - that whole pair is the unit, don't truncate it
-            top_level = gh_match.group(1).strip().strip("/")
-        elif upload_match:
-            raw_path = upload_match.group(1).strip().strip("/")
-            top_level = raw_path.split("/")[0] if raw_path else ""
-        else:
-            continue
-        if not top_level or _is_hidden_path(top_level):
-            continue
-        if top_level in seen_paths:
-            continue
-        seen_paths.add(top_level)
-        result.append({
-            "path": top_level,
-            "iso_time": commit.created_at.isoformat() if commit.created_at else None,
-        })
-        if len(result) >= limit:
-            break
-
-    _set_cache(cache_key, result)
-    return result
-
 async def search_files(query: str):
     q = query.strip().lower()
     if not q:

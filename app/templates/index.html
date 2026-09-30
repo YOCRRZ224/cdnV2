@@ -1703,7 +1703,7 @@
                         const label = batchId ? 'this batch' : (path ? path.split('/').pop() : 'root');
                         document.getElementById('zip-modal-text').innerHTML = 
                             `Are you sure you want to download <strong>${label}</strong>?<br><br>` +
-                            `This will package <strong style="color:#fff;">${data.file_count} file(s)</strong> totaling <strong style="color:#fff;">${data.size_str}</strong> into a .zip.`;
+                            `This will package <strong style="color:var(--text-main);">${data.file_count} file(s)</strong> totaling <strong style="color:var(--text-main);">${data.size_str}</strong> into a .zip.`;
                         
                         document.getElementById('zip-modal-confirm').href = downloadUrl;
                         zipModalOverlay.style.display = 'flex';

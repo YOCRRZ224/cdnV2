@@ -95,7 +95,7 @@ def _fetch_tree_recursive(path: str = ""):
         repo_id=HF_REPO_ID, path_in_repo=path, repo_type="dataset", recursive=True
     ))
 
-_HIDDEN_PREFIXES = ("_batches", "_shortened",)
+_HIDDEN_PREFIXES = ("_batches", "_shortened", "_logs",)
 
 def _is_hidden_path(path: str) -> bool:
     return any(path == p or path.startswith(p + "/") for p in _HIDDEN_PREFIXES)

@@ -6,11 +6,18 @@ rules can grow without touching the upload handlers in main.py.
 """
 from __future__ import annotations
 
+import hashlib
+import httpx
+import hmac
 import ipaddress
+import json
 import os
+import threading
+import time
 from dataclasses import dataclass
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 router = APIRouter()
 
@@ -28,6 +35,16 @@ _NON_VIDEO_FTYP_BRANDS = {
     b"jp2 ", b"jpx ", b"jpm ",
 }
 
+LOG_PATH = os.getenv("UPLOAD_LOG_PATH", "/tmp/upload_log.jsonl")
+LOG_SALT = os.getenv("UPLOAD_LOG_SALT", "change-me")
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
+_log_lock = threading.Lock()
+VPN_BLOCK = os.getenv("VPN_BLOCK", "1") == "1"
+VPN_FAIL_OPEN = os.getenv("VPN_FAIL_OPEN", "1") == "1"  # allow upload if lookup fails
+PROXYCHECK_KEY = os.getenv("PROXYCHECK_KEY", "")
+VPN_ALLOWLIST = {i.strip() for i in os.getenv("VPN_ALLOWLIST", "").split(",") if i.strip()}
+_vpn_cache: dict[str, tuple[float, bool | None]] = {}
+_VPN_TTL = 6 * 3600
 TRUST_CF_CONNECTING_IP = os.getenv("TRUST_CF_CONNECTING_IP", "1") == "1"
 TRUSTED_PROXY_HOPS = max(1, int(os.getenv("TRUSTED_PROXY_HOPS", "1")))
 
@@ -124,7 +141,14 @@ async def inspect_upload(
         user_agent=request.headers.get("user-agent", "")[:300],
     )
 
+    if VPN_BLOCK and ctx.ip not in VPN_ALLOWLIST:
+        v = await is_vpn(ctx.ip)
+        if v or (v is None and not VPN_FAIL_OPEN):
+            _log(ctx, None, "blocked_vpn")
+            raise HTTPException(status_code=403, detail="Uploads from VPNs/proxies are not allowed.")
+
     if is_video_upload(ctx.filename, temp_path):
+        _log(ctx, None, "blocked_video")
         raise HTTPException(
             status_code=415,
             detail="Video uploads (including .mp4) are not allowed on this CDN.",
@@ -133,7 +157,80 @@ async def inspect_upload(
     return ctx
 
 
+async def is_vpn(ip: str) -> bool | None:
+    """True = VPN/proxy/hosting, False = clean, None = lookup failed."""
+    try:
+        if ipaddress.ip_address(ip).is_private:
+            return False
+    except ValueError:
+        return None
+    hit = _vpn_cache.get(ip)
+    if hit and hit[0] > time.time():
+        return hit[1]
+    verdict: bool | None = None
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            r = await c.get(f"https://proxycheck.io/v2/{ip}", params={"vpn": 1, "key": PROXYCHECK_KEY})
+            info = r.json().get(ip, {})
+            if "proxy" in info:
+                verdict = info["proxy"] == "yes"
+    except Exception:
+        verdict = None
+    if len(_vpn_cache) > 5000:
+        _vpn_cache.clear()
+    _vpn_cache[ip] = (time.time() + (_VPN_TTL if verdict is not None else 300), verdict)
+    return verdict
+
+
+def _anon(ip: str) -> str:
+    return hmac.new(LOG_SALT.encode(), ip.encode(), hashlib.sha256).hexdigest()[:10]
+
+
+def _log(ctx: UploadContext, hf_path: str | None, status: str) -> None:
+    row = {
+        "time": int(time.time()),
+        "status": status,
+        "filename": ctx.filename,
+        "path": hf_path,
+        "size": ctx.size,
+        "folder": ctx.folder,
+        "method": ctx.method,
+        "uploader": _anon(ctx.ip),
+        "ip": ctx.ip,
+        "user_agent": ctx.user_agent,
+    }
+    try:
+        with _log_lock, open(LOG_PATH, "a") as f:
+            f.write(json.dumps(row) + "\n")
+    except OSError:
+        pass
+
+
 async def record_upload(ctx: UploadContext, hf_path: str) -> None:
-    """Called after a successful upload. Logging is added in a later commit."""
-    return None
-  
+    _log(ctx, hf_path, "ok")
+
+
+def _read_log(limit: int) -> list[dict]:
+    try:
+        with open(LOG_PATH) as f:
+            lines = f.readlines()[-limit:]
+    except OSError:
+        return []
+    return [json.loads(l) for l in reversed(lines) if l.strip()]
+
+
+@router.get("/api/uploads")
+async def public_upload_log(limit: int = 100):
+    """Public log. The uploader is an anonymous ID, never the raw IP."""
+    rows = _read_log(max(1, min(limit, 500)))
+    public = ("time", "status", "filename", "path", "size", "folder", "method", "uploader")
+    return JSONResponse({"uploads": [{k: r.get(k) for k in public} for r in rows]})
+
+
+@router.get("/api/admin/uploads")
+async def admin_upload_log(request: Request, limit: int = 200):
+    """Full log with raw IPs. Needs: Authorization: Bearer $ADMIN_TOKEN."""
+    auth = request.headers.get("authorization", "")
+    if not ADMIN_TOKEN or not hmac.compare_digest(auth, f"Bearer {ADMIN_TOKEN}"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return JSONResponse({"uploads": _read_log(max(1, min(limit, 2000)))})

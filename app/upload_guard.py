@@ -6,18 +6,23 @@ rules can grow without touching the upload handlers in main.py.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import httpx
 import hmac
 import ipaddress
 import json
 import os
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
 
+from cryptography.fernet import Fernet
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+
+from .storage import _do_upload, HF_REPO_ID, HF_TOKEN
 
 router = APIRouter()
 
@@ -39,6 +44,17 @@ LOG_PATH = os.getenv("UPLOAD_LOG_PATH", "/tmp/upload_log.jsonl")
 LOG_SALT = os.getenv("UPLOAD_LOG_SALT", "change-me")
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
 _log_lock = threading.Lock()
+# Persistence to the Hugging Face dataset. The dataset is publicly readable, so
+# IPs are Fernet-encrypted before upload; without LOG_ENC_KEY nothing is uploaded.
+# Generate a key with: python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"
+LOG_ENC_KEY = os.getenv("LOG_ENC_KEY", "")
+REMOTE_LOG_PATH = "_logs/uploads.jsonl"
+SYNC_INTERVAL = int(os.getenv("LOG_SYNC_SECONDS", "60"))
+MAX_LOG_ROWS = 50000
+_dirty = False
+_ready = False
+_ready_lock = asyncio.Lock()
+_sync_task = None
 VPN_BLOCK = os.getenv("VPN_BLOCK", "1") == "1"
 VPN_FAIL_OPEN = os.getenv("VPN_FAIL_OPEN", "1") == "1"  # allow upload if lookup fails
 PROXYCHECK_KEY = os.getenv("PROXYCHECK_KEY", "")
@@ -132,6 +148,7 @@ async def inspect_upload(
     method: str = "file",
 ) -> UploadContext:
     """Run all upload checks. Raises HTTPException when the upload is refused."""
+    await _ensure_ready()
     ctx = UploadContext(
         ip=get_client_ip(request),
         filename=filename or "",
@@ -182,11 +199,103 @@ async def is_vpn(ip: str) -> bool | None:
     return verdict
 
 
+def _fernet():
+    if not LOG_ENC_KEY:
+        return None
+    try:
+        return Fernet(LOG_ENC_KEY.encode())
+    except ValueError:
+        return None
+
+
+async def _fetch_remote() -> str | None:
+    url = f"https://huggingface.co/datasets/{HF_REPO_ID}/resolve/main/{REMOTE_LOG_PATH}"
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=20.0) as c:
+            r = await c.get(url, headers=headers)
+        return r.text if r.status_code == 200 else None
+    except httpx.HTTPError:
+        return None
+
+
+async def _restore() -> None:
+    """After a restart the local file is gone: rebuild it from the HF copy."""
+    f = _fernet()
+    if not f or os.path.exists(LOG_PATH):
+        return
+    text = await _fetch_remote()
+    if not text:
+        return
+    out = []
+    for line in text.splitlines():
+        try:
+            row = json.loads(line)
+            if row.get("ip"):
+                row["ip"] = f.decrypt(row["ip"].encode()).decode()
+            out.append(json.dumps(row))
+        except Exception:
+            continue
+    if out:
+        with _log_lock, open(LOG_PATH, "a") as fh:
+            fh.write("\n".join(out) + "\n")
+
+
+async def _push() -> None:
+    global _dirty
+    f = _fernet()
+    if not f:
+        return
+    _dirty = False
+    tmp = None
+    try:
+        with _log_lock, open(LOG_PATH) as fh:
+            lines = fh.readlines()[-MAX_LOG_ROWS:]
+        out = []
+        for l in lines:
+            if not l.strip():
+                continue
+            row = json.loads(l)
+            if row.get("ip"):
+                row["ip"] = f.encrypt(row["ip"].encode()).decode()
+            out.append(json.dumps(row))
+        fd, tmp = tempfile.mkstemp(suffix=".jsonl")
+        with os.fdopen(fd, "w") as fh:
+            fh.write("\n".join(out) + "\n")
+        await asyncio.to_thread(_do_upload, tmp, REMOTE_LOG_PATH)
+    except Exception:
+        _dirty = True  # retry on the next tick
+    finally:
+        if tmp and os.path.exists(tmp):
+            os.remove(tmp)
+
+
+async def _sync_loop() -> None:
+    while True:
+        await asyncio.sleep(SYNC_INTERVAL)
+        if _dirty:
+            await _push()
+
+
+async def _ensure_ready() -> None:
+    global _ready, _sync_task
+    if _ready:
+        return
+    async with _ready_lock:
+        if _ready:
+            return
+        await _restore()
+        if _fernet():
+            _sync_task = asyncio.create_task(_sync_loop())
+        _ready = True
+
+
 def _anon(ip: str) -> str:
     return hmac.new(LOG_SALT.encode(), ip.encode(), hashlib.sha256).hexdigest()[:10]
 
 
 def _log(ctx: UploadContext, hf_path: str | None, status: str) -> None:
+    global _dirty
     row = {
         "time": int(time.time()),
         "status": status,
@@ -202,11 +311,13 @@ def _log(ctx: UploadContext, hf_path: str | None, status: str) -> None:
     try:
         with _log_lock, open(LOG_PATH, "a") as f:
             f.write(json.dumps(row) + "\n")
+        _dirty = True
     except OSError:
         pass
 
 
 async def record_upload(ctx: UploadContext, hf_path: str) -> None:
+    await _ensure_ready()
     _log(ctx, hf_path, "ok")
 
 
@@ -222,6 +333,7 @@ def _read_log(limit: int) -> list[dict]:
 @router.get("/api/uploads")
 async def public_upload_log(limit: int = 100):
     """Public log. The uploader is an anonymous ID, never the raw IP."""
+    await _ensure_ready()
     rows = _read_log(max(1, min(limit, 500)))
     public = ("time", "status", "filename", "path", "size", "folder", "method", "uploader")
     return JSONResponse({"uploads": [{k: r.get(k) for k in public} for r in rows]})
@@ -233,21 +345,44 @@ async def admin_upload_log(request: Request, limit: int = 200):
     auth = request.headers.get("authorization", "")
     if not ADMIN_TOKEN or not hmac.compare_digest(auth, f"Bearer {ADMIN_TOKEN}"):
         raise HTTPException(status_code=401, detail="Unauthorized")
+    await _ensure_ready()
     return JSONResponse({"uploads": _read_log(max(1, min(limit, 2000)))})
 
 
-_ADMIN_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex"><title>Upload log</title>
-<style>body{font:14px system-ui;margin:16px;background:#0d1117;color:#e6edf3}input,select,button{font:inherit;padding:6px 8px;background:#161b22;color:inherit;border:1px solid #30363d;border-radius:6px}
-table{border-collapse:collapse;width:100%;margin-top:12px}th,td{border-bottom:1px solid #30363d;padding:6px 8px;text-align:left;vertical-align:top;word-break:break-all}
-.ok{color:#3fb950}.blocked_video,.blocked_vpn{color:#f85149}#msg{color:#f85149;margin-left:8px}</style></head><body>
-<h3>Upload log</h3>
+_ADMIN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Upload log</title>
+<style>
+*{box-sizing:border-box}
+body{font:14px/1.45 system-ui,sans-serif;margin:0;padding:16px;background:#0d1117;color:#e6edf3;max-width:1200px;margin-inline:auto}
+h1{font-size:18px;margin:0 0 12px}
+form{display:flex;gap:8px;flex-wrap:wrap}
+input,select,button{font:inherit;padding:10px 12px;background:#161b22;color:inherit;border:1px solid #30363d;border-radius:8px;min-height:42px}
+input{flex:1 1 220px}select{flex:1 1 110px}button{flex:0 0 auto;background:#238636;border-color:#238636;font-weight:600}
+#msg{color:#f85149;margin:8px 0 0;min-height:1.4em}#count{color:#8b949e;margin:4px 0 8px;font-size:13px}
+a{color:#58a6ff}
+table{border-collapse:collapse;width:100%}
+th,td{border-bottom:1px solid #30363d;padding:8px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
+th{color:#8b949e;font-weight:600;font-size:12px;text-transform:uppercase}
+.st{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:600;background:#23863633;color:#3fb950}
+.st.blocked_video,.st.blocked_vpn{background:#f8514933;color:#f85149}
+@media(max-width:700px){
+  thead{display:none}
+  table,tbody,tr,td{display:block;width:100%}
+  tr{background:#161b22;border:1px solid #30363d;border-radius:10px;margin:0 0 10px;padding:6px 12px}
+  td{border:0;padding:4px 0;display:grid;grid-template-columns:78px 1fr;gap:8px}
+  td::before{content:attr(data-l);color:#8b949e;font-size:12px;padding-top:2px}
+  td.ua{font-size:12px;color:#8b949e}
+}
+</style></head><body>
+<h1>Upload log</h1>
 <form id="f"><input id="t" type="password" placeholder="Admin token" autocomplete="off">
-<select id="s"><option value="">all</option><option>ok</option><option>blocked_video</option><option>blocked_vpn</option></select>
-<button>Load</button><span id="msg"></span></form>
+<select id="s"><option value="">All</option><option value="ok">OK</option><option value="blocked_video">Blocked video</option><option value="blocked_vpn">Blocked VPN</option></select>
+<button>Load</button></form>
+<div id="msg"></div><div id="count"></div>
 <table><thead><tr><th>Time</th><th>Status</th><th>File</th><th>Size</th><th>IP</th><th>Uploader</th><th>Via</th><th>User agent</th></tr></thead><tbody id="b"></tbody></table>
 <script>
 const $=id=>document.getElementById(id);
+const H=["Time","Status","File","Size","IP","Uploader","Via","Agent"];
 $("t").value=sessionStorage.getItem("tk")||"";
 async function load(){
   $("msg").textContent="";
@@ -255,11 +390,17 @@ async function load(){
   if(!r.ok){$("msg").textContent=r.status==401?"Wrong token":"Error "+r.status;return}
   sessionStorage.setItem("tk",$("t").value);
   const f=$("s").value,rows=(await r.json()).uploads.filter(x=>!f||x.status==f),b=$("b");b.textContent="";
+  $("count").textContent=rows.length+" entries, newest first";
   for(const x of rows){
     const tr=b.insertRow();
-    const cells=[new Date(x.time*1000).toLocaleString(),x.status,x.path||x.filename,(x.size/1048576).toFixed(2)+" MB",x.ip,x.uploader,x.method,x.user_agent];
-    cells.forEach((v,i)=>{const td=tr.insertCell();td.textContent=v;if(i==1)td.className=x.status;
-      if(i==2&&x.path){const a=document.createElement("a");a.href="/"+x.path;a.textContent=v;a.style.color="#58a6ff";td.textContent="";td.append(a)}});
+    const v=[new Date(x.time*1000).toLocaleString(),x.status,x.path||x.filename,(x.size/1048576).toFixed(2)+" MB",x.ip,x.uploader,x.method,x.user_agent];
+    v.forEach((t,i)=>{
+      const td=tr.insertCell();td.dataset.l=H[i];
+      if(i==1){const s=document.createElement("span");s.className="st "+x.status;s.textContent=x.status.replace("_"," ");td.append(s)}
+      else if(i==2&&x.path){const a=document.createElement("a");a.href="/"+x.path;a.textContent=t;td.append(a)}
+      else td.textContent=t;
+      if(i==7)td.className="ua";
+    });
   }
 }
 $("f").onsubmit=e=>{e.preventDefault();load()};

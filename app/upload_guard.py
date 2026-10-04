@@ -61,7 +61,7 @@ PROXYCHECK_KEY = os.getenv("PROXYCHECK_KEY", "")
 VPN_ALLOWLIST = {i.strip() for i in os.getenv("VPN_ALLOWLIST", "").split(",") if i.strip()}
 _vpn_cache: dict[str, tuple[float, bool | None]] = {}
 _VPN_TTL = 6 * 3600
-TRUST_CF_CONNECTING_IP = os.getenv("TRUST_CF_CONNECTING_IP", "1") == "1"
+TRUST_CF_CONNECTING_IP = os.getenv("TRUST_CF_CONNECTING_IP", "0") == "1"
 TRUSTED_PROXY_HOPS = max(1, int(os.getenv("TRUSTED_PROXY_HOPS", "1")))
 
 
@@ -349,6 +349,22 @@ async def admin_upload_log(request: Request, limit: int = 200):
     return JSONResponse({"uploads": _read_log(max(1, min(limit, 2000)))})
 
 
+@router.get("/api/admin/ip")
+async def admin_ip_debug(request: Request):
+    """Shows which IP the server detects for YOU and the raw headers it used."""
+    auth = request.headers.get("authorization", "")
+    if not ADMIN_TOKEN or not hmac.compare_digest(auth, f"Bearer {ADMIN_TOKEN}"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    h = request.headers
+    return {
+        "detected_ip": get_client_ip(request),
+        "cf_connecting_ip": h.get("cf-connecting-ip"),
+        "x_forwarded_for": h.get("x-forwarded-for"),
+        "socket_peer": request.client.host if request.client else None,
+        "trust_cf_header": TRUST_CF_CONNECTING_IP,
+        "trusted_proxy_hops": TRUSTED_PROXY_HOPS,
+    }
+
 _ADMIN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Upload log</title>
 <style>
@@ -363,7 +379,7 @@ a{color:#58a6ff}
 table{border-collapse:collapse;width:100%}
 th,td{border-bottom:1px solid #30363d;padding:8px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
 th{color:#8b949e;font-weight:600;font-size:12px;text-transform:uppercase}
-.st{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:600;background:#23863633;color:#3fb950}
+.st{justify-self:start;display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:600;background:#23863633;color:#3fb950}
 .st.blocked_video,.st.blocked_vpn{background:#f8514933;color:#f85149}
 @media(max-width:700px){
   thead{display:none}
@@ -390,7 +406,7 @@ async function load(){
   if(!r.ok){$("msg").textContent=r.status==401?"Wrong token":"Error "+r.status;return}
   sessionStorage.setItem("tk",$("t").value);
   const f=$("s").value,rows=(await r.json()).uploads.filter(x=>!f||x.status==f),b=$("b");b.textContent="";
-  $("count").textContent=rows.length+" entries, newest first";
+  $("count").textContent=rows.length+(rows.length==1?" entry":" entries")+", newest first";
   for(const x of rows){
     const tr=b.insertRow();
     const v=[new Date(x.time*1000).toLocaleString(),x.status,x.path||x.filename,(x.size/1048576).toFixed(2)+" MB",x.ip,x.uploader,x.method,x.user_agent];

@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 router = APIRouter()
 
@@ -234,3 +234,40 @@ async def admin_upload_log(request: Request, limit: int = 200):
     if not ADMIN_TOKEN or not hmac.compare_digest(auth, f"Bearer {ADMIN_TOKEN}"):
         raise HTTPException(status_code=401, detail="Unauthorized")
     return JSONResponse({"uploads": _read_log(max(1, min(limit, 2000)))})
+
+
+_ADMIN_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>Upload log</title>
+<style>body{font:14px system-ui;margin:16px;background:#0d1117;color:#e6edf3}input,select,button{font:inherit;padding:6px 8px;background:#161b22;color:inherit;border:1px solid #30363d;border-radius:6px}
+table{border-collapse:collapse;width:100%;margin-top:12px}th,td{border-bottom:1px solid #30363d;padding:6px 8px;text-align:left;vertical-align:top;word-break:break-all}
+.ok{color:#3fb950}.blocked_video,.blocked_vpn{color:#f85149}#msg{color:#f85149;margin-left:8px}</style></head><body>
+<h3>Upload log</h3>
+<form id="f"><input id="t" type="password" placeholder="Admin token" autocomplete="off">
+<select id="s"><option value="">all</option><option>ok</option><option>blocked_video</option><option>blocked_vpn</option></select>
+<button>Load</button><span id="msg"></span></form>
+<table><thead><tr><th>Time</th><th>Status</th><th>File</th><th>Size</th><th>IP</th><th>Uploader</th><th>Via</th><th>User agent</th></tr></thead><tbody id="b"></tbody></table>
+<script>
+const $=id=>document.getElementById(id);
+$("t").value=sessionStorage.getItem("tk")||"";
+async function load(){
+  $("msg").textContent="";
+  const r=await fetch("/api/admin/uploads?limit=500",{headers:{Authorization:"Bearer "+$("t").value}});
+  if(!r.ok){$("msg").textContent=r.status==401?"Wrong token":"Error "+r.status;return}
+  sessionStorage.setItem("tk",$("t").value);
+  const f=$("s").value,rows=(await r.json()).uploads.filter(x=>!f||x.status==f),b=$("b");b.textContent="";
+  for(const x of rows){
+    const tr=b.insertRow();
+    const cells=[new Date(x.time*1000).toLocaleString(),x.status,x.path||x.filename,(x.size/1048576).toFixed(2)+" MB",x.ip,x.uploader,x.method,x.user_agent];
+    cells.forEach((v,i)=>{const td=tr.insertCell();td.textContent=v;if(i==1)td.className=x.status;
+      if(i==2&&x.path){const a=document.createElement("a");a.href="/"+x.path;a.textContent=v;a.style.color="#58a6ff";td.textContent="";td.append(a)}});
+  }
+}
+$("f").onsubmit=e=>{e.preventDefault();load()};
+if($("t").value)load();
+</script></body></html>"""
+
+
+@router.get("/admin", response_class=HTMLResponse)
+async def admin_page():
+    """Admin UI. The page itself holds no data; it asks for the token and calls the API."""
+    return HTMLResponse(_ADMIN_HTML, headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"})

@@ -35,8 +35,10 @@ from .storage import (
 )
 from .gh_oidc import verify_actions_token
 from .shortener import shorten_url, get_destination_url
+from .upload_guard import router as upload_guard_router, get_client_ip, inspect_upload, record_upload
 
 app = FastAPI()
+app.include_router(upload_guard_router)
 templates = Jinja2Templates(directory="app/templates")
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -272,7 +274,7 @@ async def handle_upload(
     folder: str = Form("uploads"),
 ):
     folder = _validate_folder(folder)
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = get_client_ip(request)
     results = []
 
     for file in files:
@@ -284,6 +286,7 @@ async def handle_upload(
         size = os.path.getsize(temp_path)
 
         try:
+            guard_ctx = await inspect_upload(request, file.filename, temp_path, size, folder, "file")
             _upload_limiter.check_and_record(client_ip, size)
         except HTTPException:
             os.remove(temp_path)
@@ -294,6 +297,8 @@ async def handle_upload(
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+
+        await record_upload(guard_ctx, hf_path)
 
         results.append({
             "filename": file.filename,
@@ -365,7 +370,7 @@ async def gh_sync(
 ):
     claims = verify_actions_token(token)
     owner, repo = claims["owner"], claims["repo"]
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = get_client_ip(request)
 
     contents = await archive.read()
     _gh_sync_limiter.check_and_record(
@@ -504,7 +509,7 @@ async def handle_upload_from_url(
     body: UploadUrlRequest,
 ):
     folder = _validate_folder(body.folder)
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = get_client_ip(request)
     url = body.url.strip()
 
     _assert_public_url(url)
@@ -571,6 +576,14 @@ async def handle_upload_from_url(
             raise
 
     try:
+        guard_ctx = await inspect_upload(
+            request,
+            filename,
+            temp_path,
+            downloaded,
+            folder,
+            "url",
+        )
         _upload_limiter.check_and_record(
             client_ip,
             downloaded,
@@ -588,6 +601,8 @@ async def handle_upload_from_url(
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
+
+    await record_upload(guard_ctx, hf_path)
 
     return {
         "files": [{

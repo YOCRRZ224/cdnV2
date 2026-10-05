@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import unicodedata
 import uuid
 import json
 import tempfile
@@ -296,9 +297,30 @@ def _do_upload_bytes(data: bytes, hf_path: str):
         add=[(data, hf_path)],
     )
 
+_UNSAFE_NAME_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def sanitize_filename(filename: str, max_len: int = 100) -> str:
+    """Turn any user-supplied filename into a safe object-key segment.
+
+    Accepts spaces, accents, symbols, emoji and path fragments: directory parts
+    are dropped, accents are folded to ASCII, and anything else unsafe becomes
+    a single underscore. The extension is kept.
+    """
+    name = (filename or "").replace("\\", "/").split("/")[-1]
+    name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    stem, dot, ext = name.rpartition(".")
+    if not dot:
+        stem, ext = name, ""
+    stem = _UNSAFE_NAME_CHARS.sub("_", stem).strip("._") or "file"
+    ext = _UNSAFE_NAME_CHARS.sub("", ext)[:10]
+    stem = stem[: max_len - len(ext) - 1]
+    return f"{stem}.{ext}" if ext else stem
+
+
 async def upload_temp_file(temp_path: str, filename: str, folder: str = "uploads") -> str:
     slug = str(uuid.uuid4())[:8]
-    safe_filename = filename.replace(" ", "_")
+    safe_filename = sanitize_filename(filename)
     hf_path = f"{folder}/{slug}-{safe_filename}"
 
     await asyncio.to_thread(_do_upload, temp_path, hf_path)

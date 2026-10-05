@@ -280,7 +280,7 @@ async def handle_upload(
     results = []
 
     for file in files:
-        temp_path = f"/tmp/{uuid.uuid4()}-{file.filename}"
+        temp_path = f"/tmp/{uuid.uuid4()}"
 
         with open(temp_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
@@ -522,7 +522,7 @@ async def handle_upload_from_url(
         or f"download-{uuid.uuid4().hex[:8]}"
     )
 
-    temp_path = f"/tmp/{uuid.uuid4()}-{filename}"
+    temp_path = f"/tmp/{uuid.uuid4()}"
     downloaded = 0
 
     async with httpx.AsyncClient(
@@ -549,7 +549,6 @@ async def handle_upload_from_url(
 
                 if "filename=" in cd:
                     filename = cd.split("filename=")[-1].strip('"; ') or filename
-                    temp_path = f"/tmp/{uuid.uuid4()}-{filename}"
 
                 with open(temp_path, "wb") as f:
                     async for chunk in r.aiter_bytes():

@@ -30,7 +30,9 @@ from .storage import (
     search_files,
     write_batch_manifest,
     get_batch_manifest,
-    HF_REPO_ID,
+    HF_BUCKET_ID,
+    bucket_url,
+    auth_headers,
     format_size,
 )
 from .gh_oidc import verify_actions_token
@@ -146,9 +148,9 @@ def _resolve_content_type(filename: str, upstream_content_type: str | None) -> s
     return upstream_content_type
 
 async def stream_raw(path: str, request: Request):
-    hf_url = f"https://huggingface.co/datasets/{HF_REPO_ID}/resolve/main/{path}"
+    hf_url = bucket_url(path)
     client = httpx.AsyncClient(follow_redirects=True)
-    req_headers = {}
+    req_headers = dict(auth_headers())
     range_header = request.headers.get("range")
     if range_header:
         req_headers["Range"] = range_header
@@ -184,9 +186,9 @@ async def stream_raw(path: str, request: Request):
 
 @app.get("/api/get/{path:path}")
 async def download_file(path: str, request: Request):
-    hf_url = f"https://huggingface.co/datasets/{HF_REPO_ID}/resolve/main/{path}"
+    hf_url = bucket_url(path)
     client = httpx.AsyncClient(follow_redirects=True)
-    req_headers = {}
+    req_headers = dict(auth_headers())
     range_header = request.headers.get("range")
     if range_header:
         req_headers["Range"] = range_header
@@ -670,13 +672,10 @@ async def download_zip(path: str):
     semaphore = asyncio.Semaphore(ZIP_FETCH_CONCURRENCY)
 
     async def fetch(client: httpx.AsyncClient, f: dict):
-        hf_url = (
-            f"https://huggingface.co/datasets/"
-            f"{HF_REPO_ID}/resolve/main/{f['path']}"
-        )
+        hf_url = bucket_url(f["path"])
 
         async with semaphore:
-            r = await client.get(hf_url)
+            r = await client.get(hf_url, headers=auth_headers())
 
         return f, r
 
@@ -714,7 +713,7 @@ async def download_zip(path: str):
     zip_filename = (
         clean_path.rstrip("/").split("/")[-1]
         if clean_path
-        else HF_REPO_ID.split("/")[-1]
+        else HF_BUCKET_ID.split("/")[-1]
     ) + ".zip"
 
     return StreamingResponse(
@@ -818,13 +817,10 @@ async def download_zip_batch(batch_id: str):
     semaphore = asyncio.Semaphore(ZIP_FETCH_CONCURRENCY)
 
     async def fetch(client: httpx.AsyncClient, f: dict):
-        hf_url = (
-            f"https://huggingface.co/datasets/"
-            f"{HF_REPO_ID}/resolve/main/{f['hf_path']}"
-        )
+        hf_url = bucket_url(f["hf_path"])
 
         async with semaphore:
-            r = await client.get(hf_url)
+            r = await client.get(hf_url, headers=auth_headers())
 
         return f, r
 

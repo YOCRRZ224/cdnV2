@@ -37,10 +37,9 @@ from .storage import (
 )
 from .gh_oidc import verify_actions_token
 from .shortener import shorten_url, get_destination_url
-from .upload_guard import router as upload_guard_router, get_client_ip, inspect_upload, record_upload
+from .upload_guard import get_client_ip, inspect_upload
 
 app = FastAPI()
-app.include_router(upload_guard_router)
 templates = Jinja2Templates(directory="app/templates")
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -320,7 +319,7 @@ async def handle_upload(
         size = os.path.getsize(temp_path)
 
         try:
-            guard_ctx = await inspect_upload(request, file.filename, temp_path, size, folder, "file")
+            await inspect_upload(request, file.filename, temp_path, size, folder, "file")
             _upload_limiter.check_and_record(client_ip, size)
         except HTTPException:
             os.remove(temp_path)
@@ -331,8 +330,6 @@ async def handle_upload(
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-
-        await record_upload(guard_ctx, hf_path)
 
         results.append({
             "filename": file.filename,
@@ -615,7 +612,7 @@ async def handle_upload_from_url(
             raise
 
     try:
-        guard_ctx = await inspect_upload(
+        await inspect_upload(
             request,
             filename,
             temp_path,
@@ -640,8 +637,6 @@ async def handle_upload_from_url(
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
-
-    await record_upload(guard_ctx, hf_path)
 
     return {
         "files": [{

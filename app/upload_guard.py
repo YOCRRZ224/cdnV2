@@ -22,7 +22,7 @@ from cryptography.fernet import Fernet
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from .storage import _do_upload, HF_REPO_ID, HF_TOKEN
+from .storage import _do_upload, bucket_url, auth_headers, HF_TOKEN
 
 router = APIRouter()
 
@@ -44,7 +44,7 @@ LOG_PATH = os.getenv("UPLOAD_LOG_PATH", "/tmp/upload_log.jsonl")
 LOG_SALT = os.getenv("UPLOAD_LOG_SALT", "change-me")
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
 _log_lock = threading.Lock()
-# Persistence to the Hugging Face dataset. The dataset is publicly readable, so
+# Persistence to the Hugging Face bucket. The bucket is publicly readable, so
 # IPs are Fernet-encrypted before upload; without LOG_ENC_KEY nothing is uploaded.
 # Generate a key with: python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"
 LOG_ENC_KEY = os.getenv("LOG_ENC_KEY", "")
@@ -209,8 +209,8 @@ def _fernet():
 
 
 async def _fetch_remote() -> str | None:
-    url = f"https://huggingface.co/datasets/{HF_REPO_ID}/resolve/main/{REMOTE_LOG_PATH}"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
+    url = bucket_url(REMOTE_LOG_PATH)
+    headers = auth_headers()
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=20.0) as c:
             r = await c.get(url, headers=headers)

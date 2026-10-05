@@ -255,6 +255,38 @@ class _UploadRateLimiter:
 
 
 _upload_limiter = _UploadRateLimiter()
+
+
+class _CountRateLimiter:
+    """Sliding-window request counter per key (e.g. per client IP)."""
+
+    def __init__(self, per_minute: int, per_hour: int):
+        self.per_minute = per_minute
+        self.per_hour = per_hour
+        self._hits: dict[str, deque] = {}
+
+    def check_and_record(self, key: str):
+        now = time.time()
+        dq = self._hits.setdefault(key, deque())
+        while dq and now - dq[0] > 3600:
+            dq.popleft()
+        if sum(1 for t in dq if now - t <= 60) >= self.per_minute:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded: {self.per_minute} requests/minute. Try again shortly.",
+            )
+        if len(dq) >= self.per_hour:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded: {self.per_hour} requests/hour. Try again later.",
+            )
+        dq.append(now)
+        if len(self._hits) > 10000:
+            self._hits = {k: v for k, v in self._hits.items() if v and now - v[-1] <= 3600}
+
+
+_shorten_limiter = _CountRateLimiter(per_minute=10, per_hour=60)
+SHORTEN_MAX_URL_LENGTH = 2048
 BATCH_MIN_FILES = 2
 ALLOWED_UPLOAD_FOLDERS = {"uploads", "third-party"}
 
@@ -423,6 +455,12 @@ class ShortenRequest(BaseModel):
 @app.post("/api/shorten")
 async def api_shorten(request: Request, body: ShortenRequest):
     url = body.url.strip()
+    if len(url) > SHORTEN_MAX_URL_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"URL too long (max {SHORTEN_MAX_URL_LENGTH} characters).",
+        )
+    _shorten_limiter.check_and_record(get_client_ip(request))
     _assert_public_url(url)
     short_id = await shorten_url(url)
 

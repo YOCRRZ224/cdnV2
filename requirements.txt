@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-huggingface_hub
+huggingface_hub>=1.5
 httpx
 python-multipart
 jinja2

@@ -8,8 +8,15 @@ import asyncio
 import httpx
 from huggingface_hub import HfApi
 
-HF_REPO_ID = os.getenv("HF_REPO_ID", "notamitgamer/cdn")
+# Files live in a Hugging Face Storage Bucket (mutable, non-versioned object
+# storage) instead of a git-backed dataset repo: every write is a plain object
+# write rather than a commit, so uploads and folder syncs avoid git overhead and
+# commit rate limits. HF_REPO_ID is still honoured as a fallback so existing
+# deployments keep working until HF_BUCKET_ID is set.
+HF_BUCKET_ID = os.getenv("HF_BUCKET_ID") or os.getenv("HF_REPO_ID", "notamitgamer/cdn")
+HF_REPO_ID = HF_BUCKET_ID  # backwards-compatible alias used by older imports
 HF_TOKEN = os.getenv("HF_TOKEN")
+BUCKET_PRIVATE = os.getenv("HF_BUCKET_PRIVATE", "0") == "1"
 CACHE_TTL = 60
 MAX_CACHE_SIZE = 500
 ZIP_MAX_FILES = 300
@@ -18,6 +25,29 @@ REPO_STATS_CACHE_TTL = 300
 SEARCH_RESULT_LIMIT = 10
 
 api = HfApi(token=HF_TOKEN)
+
+
+def bucket_url(path: str) -> str:
+    """Direct (CDN-backed) download URL for an object in the bucket."""
+    return f"https://huggingface.co/buckets/{HF_BUCKET_ID}/resolve/{path}"
+
+
+def auth_headers() -> dict:
+    """Bearer header, only needed when the bucket is private."""
+    if BUCKET_PRIVATE and HF_TOKEN:
+        return {"Authorization": f"Bearer {HF_TOKEN}"}
+    return {}
+
+
+_bucket_ready = False
+
+
+def _ensure_bucket():
+    global _bucket_ready
+    if _bucket_ready:
+        return
+    api.create_bucket(HF_BUCKET_ID, private=BUCKET_PRIVATE, exist_ok=True)
+    _bucket_ready = True
 
 _cache = {}
 
@@ -69,9 +99,9 @@ async def get_file_info(path: str) -> dict:
         if cached is not None:
             return cached
 
-        hf_url = f"https://huggingface.co/datasets/{HF_REPO_ID}/resolve/main/{path}"
+        hf_url = bucket_url(path)
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            r = await client.head(hf_url)
+            r = await client.head(hf_url, headers=auth_headers())
             exists = r.status_code == 200
             size = None
             content_type = None
@@ -85,15 +115,27 @@ async def get_file_info(path: str) -> dict:
             _set_cache(cache_key, result)
             return result
 
+def _under(path: str, items: list) -> list:
+    """Keep only entries inside `path` (defensive: guards against prefix over-match
+    such as 'docs' also matching 'docs-old/...')."""
+    if not path:
+        return items
+    prefix = path.rstrip("/") + "/"
+    return [it for it in items if it.path.startswith(prefix)]
+
 def _fetch_tree(path: str):
-    return list(api.list_repo_tree(
-        repo_id=HF_REPO_ID, path_in_repo=path, repo_type="dataset", expand=False
+    path = path.strip("/")
+    items = list(api.list_bucket_tree(
+        HF_BUCKET_ID, prefix=path or None, recursive=False
     ))
+    return _under(path, items)
 
 def _fetch_tree_recursive(path: str = ""):
-    return list(api.list_repo_tree(
-        repo_id=HF_REPO_ID, path_in_repo=path, repo_type="dataset", recursive=True
+    path = path.strip("/")
+    items = list(api.list_bucket_tree(
+        HF_BUCKET_ID, prefix=path or None, recursive=True
     ))
+    return _under(path, items)
 
 _HIDDEN_PREFIXES = ("_batches", "_shortened", "_logs",)
 
@@ -241,12 +283,17 @@ async def search_files(query: str):
     ]
 
 def _do_upload(temp_path: str, hf_path: str):
-    api.upload_file(
-        path_or_fileobj=temp_path,
-        path_in_repo=hf_path,
-        repo_id=HF_REPO_ID,
-        repo_type="dataset",
-        token=HF_TOKEN
+    _ensure_bucket()
+    api.batch_bucket_files(
+        HF_BUCKET_ID,
+        add=[(temp_path, hf_path)],
+    )
+
+def _do_upload_bytes(data: bytes, hf_path: str):
+    _ensure_bucket()
+    api.batch_bucket_files(
+        HF_BUCKET_ID,
+        add=[(data, hf_path)],
     )
 
 async def upload_temp_file(temp_path: str, filename: str, folder: str = "uploads") -> str:
@@ -260,17 +307,34 @@ async def upload_temp_file(temp_path: str, filename: str, folder: str = "uploads
     return hf_path
 
 def _do_upload_folder_scoped(local_dir: str, dest_prefix: str):
-    # path_in_repo + delete_patterns are both scoped to dest_prefix, so this call
-    # can only ever create/update/delete files under that one folder - it never
-    # touches anything outside of it in the dataset repo.
-    api.upload_folder(
-        repo_id=HF_REPO_ID,
-        repo_type="dataset",
-        folder_path=local_dir,
-        path_in_repo=dest_prefix,
-        delete_patterns="*",
-        commit_message=f"gh-sync: update {dest_prefix}",
-        token=HF_TOKEN,
+    # Mirror local_dir into the bucket under dest_prefix. Every added path and every
+    # deleted path is built from dest_prefix, so this can only ever create, update
+    # or delete objects under that one folder - it never touches anything outside it.
+    _ensure_bucket()
+    dest_prefix = dest_prefix.strip("/")
+
+    local_files = {}
+    for root, _dirs, names in os.walk(local_dir):
+        for name in names:
+            full = os.path.join(root, name)
+            rel = os.path.relpath(full, local_dir).replace(os.sep, "/")
+            local_files[f"{dest_prefix}/{rel}"] = full
+
+    remote_files = {
+        it.path
+        for it in api.list_bucket_tree(HF_BUCKET_ID, prefix=dest_prefix, recursive=True)
+        if it.type == "file" and it.path.startswith(dest_prefix + "/")
+    }
+
+    stale = sorted(remote_files - local_files.keys())
+    adds = [(full, remote) for remote, full in sorted(local_files.items())]
+
+    if not adds and not stale:
+        return
+    api.batch_bucket_files(
+        HF_BUCKET_ID,
+        add=adds or None,
+        delete=stale or None,
     )
 
 async def upload_folder_scoped(local_dir: str, owner: str, repo: str) -> str:
@@ -303,9 +367,9 @@ async def get_batch_manifest(batch_id: str):
     if cached is not None:
         return cached
 
-    hf_url = f"https://huggingface.co/datasets/{HF_REPO_ID}/resolve/main/_batches/{batch_id}.json"
+    hf_url = bucket_url(f"_batches/{batch_id}.json")
     async with httpx.AsyncClient(follow_redirects=True) as client:
-        r = await client.get(hf_url)
+        r = await client.get(hf_url, headers=auth_headers())
         if r.status_code != 200:
             return None
         try:

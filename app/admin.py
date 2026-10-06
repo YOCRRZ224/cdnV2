@@ -353,6 +353,9 @@ input{font:inherit;font-size:16px;padding:10px 12px;border-radius:8px;border:1px
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;overflow-wrap:break-word}.nw{white-space:nowrap}
 .dim{color:var(--dim)}.bad{color:var(--red)}.ok{color:var(--grn)}.warn{color:var(--amb)}
 .banner{background:#3d1d1d;border:1px solid #da3633;padding:9px 12px;border-radius:8px;margin-top:10px}
+.sec{border-radius:10px;scroll-margin-top:10px}.sec.attn{border-left:3px solid var(--amb);padding-left:10px}
+.flash{animation:flash 1.8s ease-out}@keyframes flash{0%{box-shadow:0 0 0 4px var(--amb);background:#2a2110}100%{box-shadow:0 0 0 4px transparent;background:transparent}}
+@media(prefers-reduced-motion:reduce){.flash{animation:none}}
 .who{margin-top:22px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:10px 12px}.who summary{cursor:pointer}
 .who table{margin-top:8px}.who p{margin:8px 0 0;font-size:12px}
 #login{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:20px}#login input{flex:1 1 220px}
@@ -395,6 +398,12 @@ async function api(p,body){
 }
 function go(){T=document.getElementById('tok').value.trim();sessionStorage.setItem('t',T);load(true)}
 const btn=(label,cls,path,body,ask)=>`<button class="${cls}" data-p="${esc(path)}" data-b="${esc(JSON.stringify(body))}" data-ask="${esc(ask||'')}">${esc(label)}</button>`;
+document.addEventListener('click',e=>{
+  const a=e.target.closest('a.tile[href^="#"]');if(!a)return;
+  const el=document.querySelector(a.getAttribute('href'));if(!el)return;
+  e.preventDefault();el.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});
+  el.classList.remove('flash');void el.offsetWidth;el.classList.add('flash');
+});
 document.addEventListener('click',async e=>{
   const b=e.target.closest('button[data-p]');if(!b)return;
   if(b.dataset.ask&&!confirm(b.dataset.ask))return;
@@ -421,11 +430,13 @@ function render(s){
   const tile=(n,l,c,href)=>`<${href?`a href="${href}"`:'div'} class="tile ${c||''}"><b>${n}</b><span>${l}</span></${href?'a':'div'}>`;
   let t=`<div class="tiles">${tile(nf(s.total),'uploads saved')}${tile(nf(s.blocked),'blocked attempts',s.blocked?'amb':'')}${tile(nb,'banned IPs','','#bans')}${tile(pend.length,'awaiting approval',pend.length?'amb':'','#pending')}</div>`;
   if(s.error)t+=`<div class="banner">${esc(s.error)}</div>`;
+  t+=`<section id="pending" class="sec${pend.length?' attn':''}"><h2>Waiting for approval</h2>`;
   if(pend.length){
-    t+='<h2 id="pending">Waiting for approval</h2><table class="cards"><tr><th>GitHub account</th><th>Repos</th><th>Syncs</th><th>Last sync</th><th></th></tr>';
+    t+='<table class="cards"><tr><th>GitHub account</th><th>Repos</th><th>Syncs</th><th>Last sync</th><th></th></tr>';
     for(const [k,g] of pend)t+=`<tr>${cell('Account',`<a href="https://github.com/${encodeURIComponent(g.owner)}" target="_blank" rel="noopener">${esc(g.owner)}</a>`,'name')}${cell('Repos',esc((g.repos||[]).join(', ')))}${cell('Syncs',g.syncs)}${cell('Last sync',fmt(g.last))}<td class="act">${btn('Allow','green',GH,{key:k,action:'allow'})}${btn('Ban','red',GH,{key:k,action:'ban'},'Ban this GitHub account?')}</td></tr>`;
     t+='</table>';
-  }
+  }else t+='<p class="dim" style="margin:0">Nothing waiting. A new GitHub account shows up here after its first sync.</p>';
+  t+='</section>';
   document.getElementById('top').innerHTML=t;
 
   let u='<table class="cards"><tr><th>File</th><th>Time</th><th>IP</th><th>Size</th><th>Via</th><th>Status</th><th></th></tr>';
@@ -442,11 +453,11 @@ function render(s){
   for(const [k,g] of s.gh){const c=g.status==='allowed'?'ok':g.status==='banned'?'bad':'warn';
     r+=`<tr>${cell('Account',esc(g.owner),'name')}${cell('Status',esc(g.status),c)}${cell('Repos',esc((g.repos||[]).join(', ')))}${cell('Syncs',g.syncs)}${cell('Last IP',esc(g.last_ip),'mono')}${cell('Last sync',fmt(g.last))}<td class="act">${g.status!=='allowed'?btn('Allow','green',GH,{key:k,action:'allow'}):btn('Revoke','',GH,{key:k,action:'revoke'})}${g.status!=='banned'?btn('Ban','red',GH,{key:k,action:'ban'},'Ban this GitHub account?'):''}</td></tr>`}
   if(!s.gh.length)r+=empty(7,'No GitHub syncs yet.');
-  r+=`</table><p class="dim">Always allowed: ${esc(s.always_allow.join(', ')||'none')}</p><h2 id="bans">Banned IPs</h2><table class="cards"><tr><th>IP</th><th>Since</th><th>Note</th><th></th></tr>`;
+  r+=`</table><p class="dim">Always allowed: ${esc(s.always_allow.join(', ')||'none')}</p><section id="bans" class="sec"><h2>Banned IPs</h2><table class="cards"><tr><th>IP</th><th>Since</th><th>Note</th><th></th></tr>`;
   for(const ip in banned)r+=`<tr>${cell('IP',esc(ip),'name mono')}${cell('Since',fmt(banned[ip].t))}${cell('Note',esc(banned[ip].note||''))}<td class="act">${btn('Unban','','/api/admin/unban',{ip})}</td></tr>`;
   if(!nb)r+=empty(4,'None.');
   const w=s.whoami,kv=(a,b)=>`<tr><td>${a}</td><td class="mono">${esc(b==null||b===''?'-':b)}</td></tr>`;
-  r+=`</table><details id="who" class="who"${WHO||!w.ok?' open':''}><summary>Your IP as the server sees it: <span class="mono ${w.ok?'ok':'bad'}">${esc(w.detected)}</span> ${w.ok?'&#10003;':'&#10007; looks wrong'}</summary><table class="kv">${kv('X-Forwarded-For',w.x_forwarded_for)}${kv('CF-Connecting-IP',w.cf_connecting_ip)}${kv('Socket peer',w.socket_peer)}${kv('Settings','TRUST_CF_CONNECTING_IP='+(w.trust_cf_header?1:0)+', TRUSTED_PROXY_HOPS='+w.proxy_hops)}</table><p class="dim">This must be your real public IP, or bans will hit the wrong address.</p></details>`;
+  r+=`</table></section><details id="who" class="who"${WHO||!w.ok?' open':''}><summary>Your IP as the server sees it: <span class="mono ${w.ok?'ok':'bad'}">${esc(w.detected)}</span> ${w.ok?'&#10003;':'&#10007; looks wrong'}</summary><table class="kv">${kv('X-Forwarded-For',w.x_forwarded_for)}${kv('CF-Connecting-IP',w.cf_connecting_ip)}${kv('Socket peer',w.socket_peer)}${kv('Settings','TRUST_CF_CONNECTING_IP='+(w.trust_cf_header?1:0)+', TRUSTED_PROXY_HOPS='+w.proxy_hops)}</table><p class="dim">This must be your real public IP, or bans will hit the wrong address.</p></details>`;
   document.getElementById('rest').innerHTML=r;
   document.getElementById('who').addEventListener('toggle',e=>{WHO=e.target.open});
 }

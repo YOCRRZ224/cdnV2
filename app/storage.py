@@ -239,11 +239,13 @@ async def _get_full_tree():
             name = item.path.split("/")[-1]
             is_dir = not hasattr(item, "size")
             size = getattr(item, "size", 0) or 0
+            up = getattr(item, "uploaded_at", None)
             items.append({
                 "name": name,
                 "path": item.path,
                 "is_dir": is_dir,
                 "size": size,
+                "ts": int(up.timestamp()) if up else 0,
                 "size_str": format_size(size) if not is_dir else "-",
             })
 

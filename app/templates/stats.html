@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stats · amit/cdn</title>
+<meta name="description" content="What's on the CDN: file types, sizes, folders and growth.">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/svg+xml" href="/static/icons/logo.svg">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d1117" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+<style>
+  *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { background: var(--ui-bg); color: var(--ui-text); margin: 0; }
+  .wrap { max-width: var(--ui-width); margin: 0 auto; padding: 28px 16px 72px; }
+  h1 { margin: 0 0 4px; }
+  h2 { font-size: 1rem; margin: 0; font-weight: 600; }
+  .muted { color: var(--ui-muted); font-size: .88rem; }
+  .tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 20px 0 14px; }
+  .tile, .card { background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 10px; }
+  .tile { padding: 12px 14px; }
+  .tile b { display: block; font-size: 1.45rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+  .tile span { color: var(--ui-muted); font-size: .8rem; }
+  .grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  .card { padding: 14px 16px 16px; min-width: 0; }
+  .card > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .seg { display: inline-flex; border: 1px solid var(--ui-border); border-radius: 8px; overflow: hidden; }
+  .seg button { font: inherit; font-size: .8rem; padding: 6px 12px; min-height: 32px; border: 0; background: transparent; color: var(--ui-muted); cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--ui-accent-solid); color: #fff; }
+
+  .donut-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 22px; }
+  .donut { width: 150px; height: 150px; flex: none; margin: 0 auto; position: relative; }
+  .donut svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .donut circle { fill: none; stroke-width: 7; }
+  .donut .hole { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; line-height: 1.2; }
+  .donut .hole b { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+  .legend { list-style: none; margin: 0; padding: 0; flex: 1 1 200px; display: grid; gap: 7px; font-size: .88rem; }
+  .legend li { display: flex; align-items: center; gap: 8px; }
+  .legend i { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+  .legend .n { margin-left: auto; color: var(--ui-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  .bars { display: grid; gap: 11px; }
+  .bar .top { display: flex; justify-content: space-between; gap: 10px; font-size: .86rem; }
+  .bar .top span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .bar .top span:last-child { color: var(--ui-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .track { height: 8px; border-radius: 4px; background: var(--ui-border); margin-top: 4px; overflow: hidden; }
+  .track i { display: block; height: 100%; border-radius: 4px; background: var(--ui-accent); min-width: 2px; }
+
+  .cols { display: flex; align-items: flex-end; gap: 6px; height: 170px; padding-top: 18px; }
+  .col { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+  .col .v { font-size: .68rem; color: var(--ui-muted); font-variant-numeric: tabular-nums; }
+  .col i { width: 100%; max-width: 44px; border-radius: 4px 4px 0 0; background: var(--ui-accent); min-height: 2px; }
+  .labels { display: flex; gap: 6px; margin-top: 6px; }
+  .labels span { flex: 1; min-width: 0; text-align: center; font-size: .66rem; color: var(--ui-muted); line-height: 1.25; overflow-wrap: anywhere; }
+
+  .files { list-style: none; margin: 0; padding: 0; }
+  .files li { display: flex; gap: 12px; justify-content: space-between; padding: 9px 0; border-top: 1px solid var(--ui-border); font-size: .88rem; }
+  .files li:first-child { border-top: 0; padding-top: 0; }
+  .files a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: var(--ui-accent); text-decoration: none; }
+  .files span { color: var(--ui-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .note { padding: 40px 0; text-align: center; color: var(--ui-muted); }
+  .note button { font: inherit; margin-top: 10px; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--ui-border); background: var(--ui-surface); color: var(--ui-text); cursor: pointer; }
+  footer { max-width: var(--ui-width); margin: 0 auto; padding: 0 16px 32px; text-align: center; }
+
+  @media (min-width: 760px) {
+    .wrap { padding: 44px 20px 96px; }
+    .tiles { grid-template-columns: repeat(4, 1fr); }
+    .grid { grid-template-columns: 1fr 1fr; }
+    .span2 { grid-column: 1 / -1; }
+    .col .v { font-size: .75rem; } .labels span { font-size: .74rem; }
+  }
+  :root { --c0: #4c8dff; --c1: #3fb950; --c2: #d29922; --c3: #f85149; --c4: #a371f7; --c5: #39c5cf; --c6: #db61a2; --c7: #8b949e; }
+</style>
+</head>
+<body>
+{% include "_navbar.html" %}
+<main class="wrap">
+  <h1>CDN stats</h1>
+  <p class="muted" id="sub">Loading…</p>
+  <div id="out"></div>
+</main>
+<footer><p class="muted">&copy; 2025 - 2026 notamitgamer. All rights reserved.</p></footer>
+<script>
+(function () {
+  var C = ['--c0','--c1','--c2','--c3','--c4','--c5','--c6'], OTHER = 'var(--c7)';
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); };
+  var nf = new Intl.NumberFormat();
+  function B(n) { var u = ['B','KB','MB','GB','TB'], i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return (i ? n.toFixed(n < 10 ? 1 : 0) : n) + ' ' + u[i]; }
+  function pct(a, b) { return b ? Math.round(a / b * 100) : 0; }
+  function color(i, key) { return key === 'other' ? OTHER : 'var(' + C[i % C.length] + ')'; }
+
+  function donut(cats, mode, t) {
+    var total = mode === 'size' ? t.bytes : t.files, acc = 0, segs = '';
+    cats.forEach(function (c, i) {
+      var v = mode === 'size' ? c.bytes : c.files, p = total ? v / total * 100 : 0;
+      if (p > 0) segs += '<circle cx="21" cy="21" r="15.9155" stroke="' + color(i, c.key) + '" stroke-dasharray="' + p.toFixed(3) + ' ' + (100 - p).toFixed(3) + '" stroke-dashoffset="' + (-acc).toFixed(3) + '"/>';
+      acc += p;
+    });
+    var legend = cats.map(function (c, i) {
+      var v = mode === 'size' ? c.bytes : c.files;
+      return '<li><i style="background:' + color(i, c.key) + '"></i>' + esc(c.label) + '<span class="n">' + (mode === 'size' ? B(v) : nf.format(v)) + ' · ' + pct(v, total) + '%</span></li>';
+    }).join('');
+    return '<div class="donut-wrap"><div class="donut" role="img" aria-label="File types by ' + (mode === 'size' ? 'size' : 'count') + '"><svg viewBox="0 0 42 42">' +
+      '<circle cx="21" cy="21" r="15.9155" stroke="var(--ui-border)"/>' + segs + '</svg><div class="hole"><b>' + (mode === 'size' ? B(total) : nf.format(total)) +
+      '</b><span class="muted">' + (mode === 'size' ? 'total' : 'files') + '</span></div></div><ul class="legend">' + legend + '</ul></div>';
+  }
+  function bars(rows, label, val, num, sub) {
+    var max = Math.max.apply(null, rows.map(num).concat(1));
+    return '<div class="bars">' + rows.map(function (r) {
+      return '<div class="bar"><div class="top"><span>' + esc(label(r)) + '</span><span>' + val(r) + '</span></div><div class="track"><i style="width:' + Math.max(1, num(r) / max * 100).toFixed(1) + '%"></i></div></div>';
+    }).join('') + '</div>';
+  }
+  function cols(rows, label, num, fmt, tip) {
+    var max = Math.max.apply(null, rows.map(num).concat(1));
+    return '<div class="cols">' + rows.map(function (r) {
+      return '<div class="col" title="' + esc(tip(r)) + '"><span class="v">' + fmt(num(r)) + '</span><i style="height:' + Math.max(1, num(r) / max * 100).toFixed(1) + '%"></i></div>';
+    }).join('') + '</div><div class="labels">' + rows.map(function (r) { return '<span>' + esc(label(r)) + '</span>'; }).join('') + '</div>';
+  }
+  function short(n) { return n >= 10000 ? (n / 1000).toFixed(0) + 'k' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n); }
+  function mon(m) { var p = m.split('-'); return new Date(Date.UTC(+p[0], +p[1] - 1, 1)).toLocaleString(undefined, { month: 'short', timeZone: 'UTC' }) + (p[1] === '01' ? ' ’' + p[0].slice(2) : ''); }
+
+  function render(d) {
+    if (d.empty) { $('sub').textContent = ''; $('out').innerHTML = '<div class="note">No stats yet - the file list could not be read, or the CDN is empty.<br><button onclick="location.reload()">Try again</button></div>'; return; }
+    var t = d.totals, mode = 'files';
+    $('sub').textContent = 'Updated ' + new Date(d.generated * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) + ' · refreshed every few minutes';
+    var h = '<div class="tiles">' +
+      [[nf.format(t.files), 'files'], [B(t.bytes), 'total size'], [B(t.median), 'median file'], [nf.format(t.types), 'file types']].map(function (x) { return '<div class="tile"><b>' + x[0] + '</b><span>' + x[1] + '</span></div>'; }).join('') +
+      '</div><div class="grid">' +
+      '<section class="card span2"><header><h2>What\'s on the CDN</h2><div class="seg" id="seg"><button aria-pressed="true" data-m="files">Files</button><button aria-pressed="false" data-m="size">Size</button></div></header><div id="donut"></div></section>' +
+      '<section class="card"><header><h2>Top file types</h2></header>' + bars(d.extensions, function (r) { return r.ext === '(none)' ? '(no extension)' : '.' + r.ext; }, function (r) { return nf.format(r.files) + ' · ' + B(r.bytes); }, function (r) { return r.files; }) +
+        (d.extensions_more ? '<p class="muted" style="margin:12px 0 0">+ ' + nf.format(d.extensions_more) + ' more files in rarer types</p>' : '') + '</section>' +
+      '<section class="card"><header><h2>File sizes</h2></header>' + cols(d.sizes, function (r) { return r.label; }, function (r) { return r.files; }, short, function (r) { return r.label + ': ' + nf.format(r.files) + ' files'; }) + '</section>' +
+      '<section class="card"><header><h2>Biggest folders</h2></header>' + bars(d.folders, function (r) { return r.name; }, function (r) { return B(r.bytes) + ' · ' + nf.format(r.files) + ' files'; }, function (r) { return r.bytes; }) + '</section>' +
+      (d.months.length > 1 ? '<section class="card"><header><h2>Files added per month</h2></header>' + cols(d.months, function (r) { return mon(r.m); }, function (r) { return r.files; }, short, function (r) { return r.m + ': ' + nf.format(r.files) + ' files, ' + B(r.bytes); }) + '</section>' : '') +
+      '<section class="card span2"><header><h2>Largest files</h2></header><ul class="files">' + d.largest.map(function (f) { return '<li><a href="/' + encodeURI(f.path) + '" title="' + esc(f.path) + '">' + esc(f.name) + '</a><span>' + B(f.size) + '</span></li>'; }).join('') + '</ul></section></div>';
+    $('out').innerHTML = h;
+    function draw() { $('donut').innerHTML = donut(d.categories, mode, t); }
+    draw();
+    $('seg').addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return; mode = b.dataset.m;
+      [].forEach.call($('seg').children, function (x) { x.setAttribute('aria-pressed', x === b); }); draw();
+    });
+  }
+  fetch('/api/stats').then(function (r) { if (!r.ok) throw 0; return r.json(); }).then(render)
+    .catch(function () { $('sub').textContent = ''; $('out').innerHTML = '<div class="note">Could not load the stats.<br><button onclick="location.reload()">Retry</button></div>'; });
+})();
+</script>
+</body>
+</html>

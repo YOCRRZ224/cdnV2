@@ -262,7 +262,8 @@ async def admin_state(request: Request, q: str = ""):
             "trust_cf_header": TRUST_CF_CONNECTING_IP, "proxy_hops": TRUSTED_PROXY_HOPS,
         },
         "now": int(time.time()), "error": _load_error,
-        "log": rows[-300:][::-1], "matched": len(rows), "total": len(_state["log"]), "bans": _state["bans"],
+        "log": rows[-300:][::-1], "matched": len(rows), "total": len(_state["log"]),
+        "blocked": sum(1 for r in _state["log"] if r["status"] not in ("ok", "deleted")), "bans": _state["bans"],
         "gh": sorted(_state["gh"].items(), key=lambda kv: kv[1].get("last", 0), reverse=True),
         "always_allow": sorted(GH_ALWAYS_ALLOW),
     }
@@ -333,28 +334,57 @@ async def admin_delete(request: Request, body: PathBody):
 _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>CDN admin</title>
 <style>
-*{box-sizing:border-box}body{font:14px/1.45 system-ui,sans-serif;margin:0;padding:16px;background:#0d1117;color:#e6edf3;max-width:1300px;margin-inline:auto}
-h1{font-size:18px;margin:0 0 12px}h2{font-size:15px;margin:22px 0 8px;color:#9da7b3}
-table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #21262d;vertical-align:top}
-th{color:#9da7b3;font-weight:600}.wrap{overflow-x:auto}
-button{font:inherit;font-size:12px;padding:3px 9px;border-radius:6px;border:1px solid #30363d;background:#161b22;color:#e6edf3;cursor:pointer;margin-right:4px}
-button.red{border-color:#da3633;color:#ff7b72}button.green{border-color:#238636;color:#56d364}button:hover{background:#21262d}
-input{font:inherit;padding:6px 10px;border-radius:6px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;width:min(360px,100%)}
-.mono{font-family:ui-monospace,monospace;font-size:12px}.dim{color:#9da7b3}.bad{color:#ff7b72}.ok{color:#56d364}.warn{color:#d29922}
-.banner{background:#3d1d1d;border:1px solid #da3633;padding:8px 12px;border-radius:6px;margin-bottom:12px}
-a{color:#58a6ff;text-decoration:none}
+:root{--bg:#0d1117;--sf:#161b22;--bd:#30363d;--ln:#21262d;--tx:#e6edf3;--dim:#9da7b3;--red:#ff7b72;--grn:#56d364;--amb:#d29922;--blu:#58a6ff}
+*{box-sizing:border-box}
+body{font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;margin:0 auto;padding:14px 14px 64px;background:var(--bg);color:var(--tx);max-width:1200px;-webkit-text-size-adjust:100%}
+header.bar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+h1{font-size:19px;margin:0}h2{font-size:15px;margin:24px 0 8px;color:var(--dim);font-weight:600;scroll-margin-top:12px}
+a{color:var(--blu);text-decoration:none}
+.links{display:flex;gap:8px;align-items:center}
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.tile{display:block;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:10px 12px;color:var(--tx)}
+.tile b{display:block;font-size:21px;line-height:1.2}.tile span{font-size:12px;color:var(--dim)}.tile.amb{border-color:var(--amb)}.tile.amb b{color:var(--amb)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px;border-bottom:1px solid var(--ln);vertical-align:top}th{color:var(--dim);font-weight:600}
+.act{white-space:nowrap}.name{overflow-wrap:anywhere}
+button{font:inherit;font-size:13px;min-height:34px;padding:5px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--sf);color:var(--tx);cursor:pointer}
+button.red{border-color:#da3633;color:var(--red)}button.green{border-color:#238636;color:var(--grn)}button:active{background:var(--ln)}
+input{font:inherit;font-size:16px;padding:10px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--tx);width:100%;max-width:420px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;overflow-wrap:break-word}.nw{white-space:nowrap}
+.dim{color:var(--dim)}.bad{color:var(--red)}.ok{color:var(--grn)}.warn{color:var(--amb)}
+.banner{background:#3d1d1d;border:1px solid #da3633;padding:9px 12px;border-radius:8px;margin-top:10px}
+.who{margin-top:22px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:10px 12px}.who summary{cursor:pointer}
+.who table{margin-top:8px}.who p{margin:8px 0 0;font-size:12px}
+#login{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:20px}#login input{flex:1 1 220px}
+#qrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px}#qrow input{flex:1 1 260px}
+@media(min-width:721px){.tiles{grid-template-columns:repeat(4,1fr)}th,td{padding:8px 10px}}
+@media(max-width:720px){
+  body{padding:12px 12px 64px}
+  table.cards,table.cards tbody{display:block}
+  table.cards tr{display:block;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin:0 0 10px}
+  table.cards tr:first-child{display:none}
+  table.cards td{display:flex;gap:14px;justify-content:space-between;align-items:baseline;border:0;padding:3px 0;text-align:right;overflow-wrap:anywhere}
+  table.cards td::before{content:attr(data-l);color:var(--dim);flex:none;text-align:left}
+  table.cards td.name{display:block;text-align:left;font-size:14px;font-weight:600;padding-bottom:6px}table.cards td.name::before,table.cards td.act::before{display:none}
+  table.cards td:empty{display:none}
+  table.cards td.empty{display:block;text-align:left;color:var(--dim)}
+  table.cards td.act{display:flex;justify-content:stretch;gap:8px;margin-top:8px;padding-top:10px;border-top:1px solid var(--ln)}
+  table.cards td.act button{flex:1;min-height:44px;font-size:14px}
+  table.kv tr{display:block;padding:6px 0;border-bottom:1px solid var(--ln)}table.kv td{display:block;border:0;padding:1px 0}table.kv td:first-child{color:var(--dim);font-size:12px}
+}
 </style></head><body>
-<h1>CDN admin</h1>
-<div id="login"><input id="tok" type="password" placeholder="Admin token" autocomplete="off"> <button onclick="go()">Open</button> <span id="lerr" class="bad"></span></div>
+<header class="bar"><h1>CDN admin</h1><div class="links" id="nav" style="display:none"><a href="/stats">Stats</a><button onclick="logout()">Log out</button></div></header>
+<div id="login"><input id="tok" type="password" placeholder="Admin token" autocomplete="current-password"> <button onclick="go()">Open</button> <span id="lerr" class="bad"></span></div>
 <div id="app" style="display:none">
 <div id="top"></div>
-<h2>Recent uploads</h2>
-<p><input id="q" type="search" placeholder="Search file name, link, IP, GitHub repo, status..." autocomplete="off"> <span id="qinfo" class="dim"></span></p>
-<div class="wrap" id="uploads"></div>
+<h2 id="uploads-h">Recent uploads</h2>
+<div id="qrow"><input id="q" type="search" placeholder="Search file name, link, IP, GitHub repo, status..." autocomplete="off"><span id="qinfo" class="dim"></span></div>
+<div id="uploads"></div>
+<div id="rest"></div>
 </div>
 <script>
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const fmt=t=>new Date(t*1000).toLocaleString();
+const fmt=t=>new Date(t*1000).toLocaleString([],{dateStyle:'short',timeStyle:'short'}),nf=n=>Number(n).toLocaleString();
 const sz=n=>n>=1048576?(n/1048576).toFixed(1)+' MB':n>=1024?(n/1024).toFixed(1)+' KB':n+' B';
 let T=sessionStorage.getItem('t')||'',timer=null,Q='',qt=null;
 document.getElementById('tok').value='';
@@ -373,55 +403,54 @@ document.addEventListener('click',async e=>{
 async function load(first){
   try{
     const s=await api('/api/admin/state?q='+encodeURIComponent(Q));
-    document.getElementById('login').style.display='none';document.getElementById('app').style.display='block';
+    document.getElementById('login').style.display='none';document.getElementById('app').style.display='block';document.getElementById('nav').style.display='flex';
     render(s);if(!timer)timer=setInterval(load,20000);
   }catch(e){
     if(first||!T){document.getElementById('lerr').textContent=e.message}
     if(timer){clearInterval(timer);timer=null}
-    document.getElementById('login').style.display='block';document.getElementById('app').style.display='none';
+    document.getElementById('login').style.display='flex';document.getElementById('app').style.display='none';document.getElementById('nav').style.display='none';
   }
 }
 const GH='/api/admin/gh';
+let WHO=false;
+const cell=(l,v,c)=>`<td data-l="${l}"${c?` class="${c}"`:''}>${v}</td>`;
+const empty=(n,t)=>`<tr><td class="empty" colspan="${n}">${t}</td></tr>`;
+function logout(){sessionStorage.removeItem('t');T='';if(timer){clearInterval(timer);timer=null}document.getElementById('app').style.display='none';document.getElementById('nav').style.display='none';document.getElementById('login').style.display='flex'}
 function render(s){
-  const banned=s.bans,pending=s.gh.filter(([k,g])=>g.status==='pending'&&g.syncs>=1);
-  let h='';
-  if(s.error)h+=`<div class="banner">${esc(s.error)}</div>`;
-  const w=s.whoami;
-  h+=`<h2>How the server sees you</h2><div class="wrap"><table>
-    <tr><td>Detected IP (used for bans)</td><td class="mono ${w.ok?'ok':'bad'}">${esc(w.detected)}</td></tr>
-    <tr><td>X-Forwarded-For</td><td class="mono">${esc(w.x_forwarded_for||'-')}</td></tr>
-    <tr><td>CF-Connecting-IP</td><td class="mono">${esc(w.cf_connecting_ip||'-')}</td></tr>
-    <tr><td>Socket peer</td><td class="mono">${esc(w.socket_peer||'-')}</td></tr>
-    <tr><td>Settings</td><td class="mono">TRUST_CF_CONNECTING_IP=${w.trust_cf_header?1:0}, TRUSTED_PROXY_HOPS=${w.proxy_hops}</td></tr></table></div>
-    <p class="dim">The detected IP must be YOUR real public IP. If it is not, bans will hit the wrong address.</p>`;
-  if(pending.length){
-    h+='<h2>Waiting for approval</h2><div class="wrap"><table><tr><th>GitHub account</th><th>Repos</th><th>Syncs</th><th>Last sync</th><th></th></tr>';
-    for(const [k,g] of pending)h+=`<tr><td><a href="https://github.com/${encodeURIComponent(g.owner)}" target="_blank" rel="noopener">${esc(g.owner)}</a></td><td>${esc((g.repos||[]).join(', '))}</td><td>${g.syncs}</td><td>${fmt(g.last)}</td>
-      <td>${btn('Allow','green',GH,{key:k,action:'allow'})}${btn('Ban','red',GH,{key:k,action:'ban'},'Ban this GitHub account?')}</td></tr>`;
-    h+='</table></div>';
+  const banned=s.bans,nb=Object.keys(banned).length,pend=s.gh.filter(([k,g])=>g.status==='pending'&&g.syncs>=1);
+  const tile=(n,l,c,href)=>`<${href?`a href="${href}"`:'div'} class="tile ${c||''}"><b>${n}</b><span>${l}</span></${href?'a':'div'}>`;
+  let t=`<div class="tiles">${tile(nf(s.total),'uploads saved')}${tile(nf(s.blocked),'blocked attempts',s.blocked?'amb':'')}${tile(nb,'banned IPs','','#bans')}${tile(pend.length,'awaiting approval',pend.length?'amb':'','#pending')}</div>`;
+  if(s.error)t+=`<div class="banner">${esc(s.error)}</div>`;
+  if(pend.length){
+    t+='<h2 id="pending">Waiting for approval</h2><table class="cards"><tr><th>GitHub account</th><th>Repos</th><th>Syncs</th><th>Last sync</th><th></th></tr>';
+    for(const [k,g] of pend)t+=`<tr>${cell('Account',`<a href="https://github.com/${encodeURIComponent(g.owner)}" target="_blank" rel="noopener">${esc(g.owner)}</a>`,'name')}${cell('Repos',esc((g.repos||[]).join(', ')))}${cell('Syncs',g.syncs)}${cell('Last sync',fmt(g.last))}<td class="act">${btn('Allow','green',GH,{key:k,action:'allow'})}${btn('Ban','red',GH,{key:k,action:'ban'},'Ban this GitHub account?')}</td></tr>`;
+    t+='</table>';
   }
-  h+='<h2>GitHub accounts</h2><div class="wrap"><table><tr><th>Account</th><th>Status</th><th>Repos</th><th>Syncs</th><th>Last IP</th><th>Last sync</th><th></th></tr>';
-  for(const [k,g] of s.gh){const c=g.status==='allowed'?'ok':g.status==='banned'?'bad':'warn';
-    h+=`<tr><td>${esc(g.owner)}</td><td class="${c}">${esc(g.status)}</td><td>${esc((g.repos||[]).join(', '))}</td><td>${g.syncs}</td><td class="mono">${esc(g.last_ip)}</td><td>${fmt(g.last)}</td>
-    <td>${g.status!=='allowed'?btn('Allow','green',GH,{key:k,action:'allow'}):btn('Revoke','',GH,{key:k,action:'revoke'})}${g.status!=='banned'?btn('Ban','red',GH,{key:k,action:'ban'},'Ban this GitHub account?'):''}</td></tr>`}
-  if(!s.gh.length)h+='<tr><td colspan="7" class="dim">No GitHub syncs yet.</td></tr>';
-  h+=`</table></div><p class="dim">Always allowed: ${esc(s.always_allow.join(', ')||'none')}</p>`;
-  h+='<h2>Banned IPs</h2><div class="wrap"><table><tr><th>IP</th><th>Since</th><th>Note</th><th></th></tr>';
-  for(const ip in banned)h+=`<tr><td class="mono">${esc(ip)}</td><td>${fmt(banned[ip].t)}</td><td>${esc(banned[ip].note)}</td><td>${btn('Unban','','/api/admin/unban',{ip})}</td></tr>`;
-  if(!Object.keys(banned).length)h+='<tr><td colspan="4" class="dim">None.</td></tr>';
-  document.getElementById('top').innerHTML=h+'</table></div>';
-  h='<table><tr><th>Time</th><th>IP</th><th>File</th><th>Size</th><th>Via</th><th>Status</th><th></th></tr>';
+  document.getElementById('top').innerHTML=t;
+
+  let u='<table class="cards"><tr><th>File</th><th>Time</th><th>IP</th><th>Size</th><th>Via</th><th>Status</th><th></th></tr>';
   for(const r of s.log){
     const st=r.status==='ok'?'ok':r.status==='deleted'?'dim':'bad',live=r.path&&r.status==='ok';
-    h+=`<tr><td>${fmt(r.t)}</td><td class="mono" title="${esc(r.ua)}">${esc(r.ip)}</td>
-    <td>${live?`<a href="/${encodeURI(r.path)}" target="_blank" rel="noopener">${esc(r.name)}</a>`:esc(r.name)}${r.extra?`<div class="dim">${esc(r.extra)}</div>`:''}</td>
-    <td>${sz(r.size)}</td><td>${esc(r.method)}</td><td class="${st}">${esc(r.status)}</td>
-    <td>${r.method==='github'?'':r.ip in banned?'<span class="dim">banned</span>':btn('Ban IP','red','/api/admin/ban',{ip:r.ip},'Ban '+r.ip+'?')}${live?btn('Delete','red','/api/admin/delete',{path:r.path},'Delete '+r.path+' from the CDN?'):''}</td></tr>`;
+    const acts=(r.method==='github'?'':r.ip in banned?'<span class="dim">IP banned</span>':btn('Ban IP','red','/api/admin/ban',{ip:r.ip},'Ban '+r.ip+'?'))+(live?btn('Delete','red','/api/admin/delete',{path:r.path},'Delete '+r.path+' from the CDN?'):'');
+    u+=`<tr>${cell('File',(live?`<a href="/${encodeURI(r.path)}" target="_blank" rel="noopener">${esc(r.name)}</a>`:esc(r.name))+(r.extra?`<div class="dim" style="font-weight:400">${esc(r.extra)}</div>`:''),'name')}${cell('Time',fmt(r.t),'nw')}${cell('IP',esc(r.ip),'mono')}${cell('Size',sz(r.size),'nw')}${cell('Via',esc(r.method))}${cell('Status',esc(r.status),st)}${acts?`<td class="act">${acts}</td>`:'<td class="act" style="display:none"></td>'}</tr>`;
   }
-  if(!s.log.length)h+=`<tr><td colspan="7" class="dim">${Q?'Nothing matches your search.':'No uploads recorded yet.'}</td></tr>`;
-  document.getElementById('uploads').innerHTML=h+'</table>';
-  document.getElementById('qinfo').textContent=Q?`${s.matched} match${s.matched===1?'':'es'} of ${s.total}${s.matched>s.log.length?' (showing newest '+s.log.length+')':''}`:`${s.total} saved`;
+  if(!s.log.length)u+=empty(7,Q?'Nothing matches your search.':'No uploads recorded yet.');
+  document.getElementById('uploads').innerHTML=u+'</table>';
+  document.getElementById('qinfo').textContent=Q?`${s.matched} match${s.matched===1?'':'es'} of ${s.total}${s.matched>s.log.length?' (showing newest '+s.log.length+')':''}`:`${nf(s.total)} saved`;
+
+  let r='<h2>GitHub accounts</h2><table class="cards"><tr><th>Account</th><th>Status</th><th>Repos</th><th>Syncs</th><th>Last IP</th><th>Last sync</th><th></th></tr>';
+  for(const [k,g] of s.gh){const c=g.status==='allowed'?'ok':g.status==='banned'?'bad':'warn';
+    r+=`<tr>${cell('Account',esc(g.owner),'name')}${cell('Status',esc(g.status),c)}${cell('Repos',esc((g.repos||[]).join(', ')))}${cell('Syncs',g.syncs)}${cell('Last IP',esc(g.last_ip),'mono')}${cell('Last sync',fmt(g.last))}<td class="act">${g.status!=='allowed'?btn('Allow','green',GH,{key:k,action:'allow'}):btn('Revoke','',GH,{key:k,action:'revoke'})}${g.status!=='banned'?btn('Ban','red',GH,{key:k,action:'ban'},'Ban this GitHub account?'):''}</td></tr>`}
+  if(!s.gh.length)r+=empty(7,'No GitHub syncs yet.');
+  r+=`</table><p class="dim">Always allowed: ${esc(s.always_allow.join(', ')||'none')}</p><h2 id="bans">Banned IPs</h2><table class="cards"><tr><th>IP</th><th>Since</th><th>Note</th><th></th></tr>`;
+  for(const ip in banned)r+=`<tr>${cell('IP',esc(ip),'name mono')}${cell('Since',fmt(banned[ip].t))}${cell('Note',esc(banned[ip].note||''))}<td class="act">${btn('Unban','','/api/admin/unban',{ip})}</td></tr>`;
+  if(!nb)r+=empty(4,'None.');
+  const w=s.whoami,kv=(a,b)=>`<tr><td>${a}</td><td class="mono">${esc(b==null||b===''?'-':b)}</td></tr>`;
+  r+=`</table><details id="who" class="who"${WHO||!w.ok?' open':''}><summary>Your IP as the server sees it: <span class="mono ${w.ok?'ok':'bad'}">${esc(w.detected)}</span> ${w.ok?'&#10003;':'&#10007; looks wrong'}</summary><table class="kv">${kv('X-Forwarded-For',w.x_forwarded_for)}${kv('CF-Connecting-IP',w.cf_connecting_ip)}${kv('Socket peer',w.socket_peer)}${kv('Settings','TRUST_CF_CONNECTING_IP='+(w.trust_cf_header?1:0)+', TRUSTED_PROXY_HOPS='+w.proxy_hops)}</table><p class="dim">This must be your real public IP, or bans will hit the wrong address.</p></details>`;
+  document.getElementById('rest').innerHTML=r;
+  document.getElementById('who').addEventListener('toggle',e=>{WHO=e.target.open});
 }
 document.getElementById('q').addEventListener('input',e=>{clearTimeout(qt);qt=setTimeout(()=>{Q=e.target.value.trim();load()},250)});
+document.getElementById('tok').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
 if(T)load(true);
 </script></body></html>"""

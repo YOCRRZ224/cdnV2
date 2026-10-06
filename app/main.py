@@ -38,10 +38,12 @@ from .storage import (
 from .gh_oidc import verify_actions_token
 from .shortener import shorten_url, get_destination_url
 from .upload_guard import get_client_ip, inspect_upload, is_video_upload
+from .stats import router as stats_router
 from .admin import router as admin_router, record_upload, is_banned, gh_check, gh_record
 
 app = FastAPI()
 app.include_router(admin_router)
+app.include_router(stats_router)
 templates = Jinja2Templates(directory="app/templates")
 
 STATIC_DIR = Path(__file__).parent / "static"

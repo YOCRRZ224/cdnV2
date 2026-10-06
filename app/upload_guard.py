@@ -50,6 +50,13 @@ def _valid_ip(value: str | None) -> str | None:
         return None
 
 
+def is_public_ip(value: str) -> bool:
+    try:
+        return ipaddress.ip_address(value).is_global
+    except ValueError:
+        return False
+
+
 def get_client_ip(request: Request) -> str:
     """Best-effort real client IP behind Cloudflare / Render's proxy.
 
@@ -65,6 +72,12 @@ def get_client_ip(request: Request) -> str:
     xff = request.headers.get("x-forwarded-for")
     if xff:
         parts = [p.strip() for p in xff.split(",") if p.strip()]
+        # Hosts like Render append their own internal (10.x etc.) proxy addresses to
+        # the right-hand end. Those are never the visitor, so drop them before counting hops.
+        public_parts = list(parts)
+        while public_parts and not is_public_ip(public_parts[-1]):
+            public_parts.pop()
+        parts = public_parts or parts
         if parts:
             idx = len(parts) - TRUSTED_PROXY_HOPS
             ip = _valid_ip(parts[idx] if idx >= 0 else parts[0])

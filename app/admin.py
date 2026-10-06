@@ -232,7 +232,15 @@ async def admin_page():
 async def admin_state(request: Request):
     _require_admin(request)
     await ensure_loaded()
+    from .upload_guard import get_client_ip, TRUST_CF_CONNECTING_IP, TRUSTED_PROXY_HOPS
+    h = request.headers
     return {
+        "whoami": {
+            "detected": get_client_ip(request),
+            "x_forwarded_for": h.get("x-forwarded-for"), "cf_connecting_ip": h.get("cf-connecting-ip"),
+            "true_client_ip": h.get("true-client-ip"), "socket_peer": request.client.host if request.client else None,
+            "trust_cf_header": TRUST_CF_CONNECTING_IP, "proxy_hops": TRUSTED_PROXY_HOPS,
+        },
         "now": int(time.time()), "error": _load_error,
         "log": _state["log"][-300:][::-1], "bans": _state["bans"],
         "gh": sorted(_state["gh"].items(), key=lambda kv: kv[1].get("last", 0), reverse=True),
@@ -255,6 +263,11 @@ async def admin_ban(request: Request, body: IpBody):
         ip = str(ipaddress.ip_address(body.ip.strip()))
     except ValueError:  # also stops "unknown" (undetectable IP) from banning everyone
         raise HTTPException(status_code=400, detail="Not a valid IP address.")
+    if not ipaddress.ip_address(ip).is_global:
+        raise HTTPException(
+            status_code=400,
+            detail="That is an internal address, not a real visitor. The server is not seeing visitor IPs correctly - see 'How the server sees you' at the top of the dashboard.",
+        )
     _state["bans"][ip] = {"t": int(time.time()), "note": body.note[:100]}
     return await _mutate_and_save()
 
@@ -347,6 +360,14 @@ function render(s){
   const banned=s.bans,pending=s.gh.filter(([k,g])=>g.status==='pending'&&g.syncs>=1);
   let h='';
   if(s.error)h+=`<div class="banner">${esc(s.error)}</div>`;
+  const w=s.whoami;
+  h+=`<h2>How the server sees you</h2><div class="wrap"><table>
+    <tr><td>Detected IP (used for bans)</td><td class="mono ${w.detected&&w.detected!=='unknown'?'ok':'bad'}">${esc(w.detected)}</td></tr>
+    <tr><td>X-Forwarded-For</td><td class="mono">${esc(w.x_forwarded_for||'-')}</td></tr>
+    <tr><td>CF-Connecting-IP</td><td class="mono">${esc(w.cf_connecting_ip||'-')}</td></tr>
+    <tr><td>Socket peer</td><td class="mono">${esc(w.socket_peer||'-')}</td></tr>
+    <tr><td>Settings</td><td class="mono">TRUST_CF_CONNECTING_IP=${w.trust_cf_header?1:0}, TRUSTED_PROXY_HOPS=${w.proxy_hops}</td></tr></table></div>
+    <p class="dim">The detected IP must be YOUR real public IP. If it is not, bans will hit the wrong address.</p>`;
   if(pending.length){
     h+='<h2>Waiting for approval</h2><div class="wrap"><table><tr><th>GitHub account</th><th>Repos</th><th>Syncs</th><th>Last sync</th><th></th></tr>';
     for(const [k,g] of pending)h+=`<tr><td><a href="https://github.com/${encodeURIComponent(g.owner)}" target="_blank" rel="noopener">${esc(g.owner)}</a></td><td>${esc((g.repos||[]).join(', '))}</td><td>${g.syncs}</td><td>${fmt(g.last)}</td>

@@ -37,9 +37,11 @@ from .storage import (
 )
 from .gh_oidc import verify_actions_token
 from .shortener import shorten_url, get_destination_url
-from .upload_guard import get_client_ip, inspect_upload
+from .upload_guard import get_client_ip, inspect_upload, is_video_upload
+from .admin import router as admin_router, record_upload, is_banned, gh_check, gh_record
 
 app = FastAPI()
+app.include_router(admin_router)
 templates = Jinja2Templates(directory="app/templates")
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -319,7 +321,7 @@ async def handle_upload(
         size = os.path.getsize(temp_path)
 
         try:
-            await inspect_upload(request, file.filename, temp_path, size, folder, "file")
+            guard_ctx = await inspect_upload(request, file.filename, temp_path, size, folder, "file")
             _upload_limiter.check_and_record(client_ip, size)
         except HTTPException:
             os.remove(temp_path)
@@ -330,6 +332,8 @@ async def handle_upload(
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+
+        await record_upload(guard_ctx, hf_path)
 
         results.append({
             "filename": file.filename,
@@ -403,6 +407,10 @@ async def gh_sync(
     owner, repo = claims["owner"], claims["repo"]
     client_ip = get_client_ip(request)
 
+    if await is_banned(client_ip):
+        raise HTTPException(status_code=403, detail="You are banned from this CDN.")
+    await gh_check(owner, claims["owner_id"])
+
     contents = await archive.read()
     _gh_sync_limiter.check_and_record(
         f"gh-sync:{owner}/{repo}:{client_ip}",
@@ -424,11 +432,22 @@ async def gh_sync(
                 detail="Could not read archive (expected a .tar.gz).",
             )
 
+        for root, _dirs, names in os.walk(tmp_extract):
+            for name in names:
+                full = os.path.join(root, name)
+                if is_video_upload(name, full):
+                    raise HTTPException(
+                        status_code=415,
+                        detail=f"Video files are not allowed on this CDN (found {name}). Nothing was synced.",
+                    )
+
         dest_prefix = await upload_folder_scoped(
             tmp_extract,
             owner,
             repo,
         )
+
+    await gh_record(owner, claims["owner_id"], repo, claims["actor"], client_ip, len(contents), dest_prefix)
 
     return {
         "synced_to": dest_prefix,
@@ -457,7 +476,10 @@ async def api_shorten(request: Request, body: ShortenRequest):
             status_code=400,
             detail=f"URL too long (max {SHORTEN_MAX_URL_LENGTH} characters).",
         )
-    _shorten_limiter.check_and_record(get_client_ip(request))
+    client_ip = get_client_ip(request)
+    if await is_banned(client_ip):
+        raise HTTPException(status_code=403, detail="You are banned from this CDN.")
+    _shorten_limiter.check_and_record(client_ip)
     _assert_public_url(url)
     short_id = await shorten_url(url)
 
@@ -612,7 +634,7 @@ async def handle_upload_from_url(
             raise
 
     try:
-        await inspect_upload(
+        guard_ctx = await inspect_upload(
             request,
             filename,
             temp_path,
@@ -637,6 +659,8 @@ async def handle_upload_from_url(
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
+
+    await record_upload(guard_ctx, hf_path)
 
     return {
         "files": [{

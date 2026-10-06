@@ -138,7 +138,7 @@ def _fetch_tree_recursive(path: str = ""):
     ))
     return _under(path, items)
 
-_HIDDEN_PREFIXES = ("_batches", "_shortened", "_logs",)
+_HIDDEN_PREFIXES = ("_batches", "_shortened", "_logs", "_admin",)
 
 def _is_hidden_path(path: str) -> bool:
     return any(path == p or path.startswith(p + "/") for p in _HIDDEN_PREFIXES)
@@ -296,6 +296,17 @@ def _do_upload_bytes(data: bytes, hf_path: str):
         HF_BUCKET_ID,
         add=[(data, hf_path)],
     )
+
+def delete_object(path: str):
+    """Delete one object, or everything under path/ (for a synced owner/repo folder)."""
+    _ensure_bucket()
+    path = path.strip("/")
+    items = [it.path for it in api.list_bucket_tree(HF_BUCKET_ID, prefix=path, recursive=True)
+             if it.type == "file" and (it.path == path or it.path.startswith(path + "/"))]
+    if items:
+        api.batch_bucket_files(HF_BUCKET_ID, delete=items)
+    _cache.clear()
+
 
 _UNSAFE_NAME_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
 

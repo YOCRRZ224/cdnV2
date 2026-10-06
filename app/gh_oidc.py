@@ -71,6 +71,7 @@ def verify_actions_token(token: str) -> dict:
 
     return {
         "owner": owner,
+        "owner_id": str(claims.get("repository_owner_id", "")),
         "repo": repo_name,
         "actor": claims.get("actor", ""),
         "ref": claims.get("ref", ""),

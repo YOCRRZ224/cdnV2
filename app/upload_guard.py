@@ -14,6 +14,8 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException, Request
 
+from .admin import is_banned, record_blocked
+
 
 # Video containers that are refused outright, by extension.
 BLOCKED_VIDEO_EXTENSIONS = {
@@ -131,12 +133,18 @@ async def inspect_upload(
         user_agent=request.headers.get("user-agent", "")[:300],
     )
 
+    if await is_banned(ctx.ip):
+        await record_blocked(ctx, "banned")
+        raise HTTPException(status_code=403, detail="You are banned from uploading to this CDN.")
+
     if VPN_BLOCK and ctx.ip not in VPN_ALLOWLIST:
         v = await is_vpn(ctx.ip)
         if v or (v is None and not VPN_FAIL_OPEN):
+            await record_blocked(ctx, "blocked_vpn")
             raise HTTPException(status_code=403, detail="Uploads from VPNs/proxies are not allowed.")
 
     if is_video_upload(ctx.filename, temp_path):
+        await record_blocked(ctx, "blocked_video")
         raise HTTPException(
             status_code=415,
             detail="Video uploads (including .mp4) are not allowed on this CDN.",

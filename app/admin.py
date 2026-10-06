@@ -232,11 +232,12 @@ async def admin_page():
 async def admin_state(request: Request):
     _require_admin(request)
     await ensure_loaded()
-    from .upload_guard import get_client_ip, TRUST_CF_CONNECTING_IP, TRUSTED_PROXY_HOPS
+    from .upload_guard import get_client_ip, is_cloudflare_ip, is_public_ip, TRUST_CF_CONNECTING_IP, TRUSTED_PROXY_HOPS
     h = request.headers
+    me = get_client_ip(request)
     return {
         "whoami": {
-            "detected": get_client_ip(request),
+            "detected": me, "ok": is_public_ip(me) and not is_cloudflare_ip(me),
             "x_forwarded_for": h.get("x-forwarded-for"), "cf_connecting_ip": h.get("cf-connecting-ip"),
             "true_client_ip": h.get("true-client-ip"), "socket_peer": request.client.host if request.client else None,
             "trust_cf_header": TRUST_CF_CONNECTING_IP, "proxy_hops": TRUSTED_PROXY_HOPS,
@@ -263,10 +264,11 @@ async def admin_ban(request: Request, body: IpBody):
         ip = str(ipaddress.ip_address(body.ip.strip()))
     except ValueError:  # also stops "unknown" (undetectable IP) from banning everyone
         raise HTTPException(status_code=400, detail="Not a valid IP address.")
-    if not ipaddress.ip_address(ip).is_global:
+    from .upload_guard import is_cloudflare_ip
+    if not ipaddress.ip_address(ip).is_global or is_cloudflare_ip(ip):
         raise HTTPException(
             status_code=400,
-            detail="That is an internal address, not a real visitor. The server is not seeing visitor IPs correctly - see 'How the server sees you' at the top of the dashboard.",
+            detail="That is an internal or Cloudflare address, not a real visitor (banning it could block many people). The server is not seeing visitor IPs correctly - see 'How the server sees you' at the top of the dashboard.",
         )
     _state["bans"][ip] = {"t": int(time.time()), "note": body.note[:100]}
     return await _mutate_and_save()
@@ -362,7 +364,7 @@ function render(s){
   if(s.error)h+=`<div class="banner">${esc(s.error)}</div>`;
   const w=s.whoami;
   h+=`<h2>How the server sees you</h2><div class="wrap"><table>
-    <tr><td>Detected IP (used for bans)</td><td class="mono ${w.detected&&w.detected!=='unknown'?'ok':'bad'}">${esc(w.detected)}</td></tr>
+    <tr><td>Detected IP (used for bans)</td><td class="mono ${w.ok?'ok':'bad'}">${esc(w.detected)}</td></tr>
     <tr><td>X-Forwarded-For</td><td class="mono">${esc(w.x_forwarded_for||'-')}</td></tr>
     <tr><td>CF-Connecting-IP</td><td class="mono">${esc(w.cf_connecting_ip||'-')}</td></tr>
     <tr><td>Socket peer</td><td class="mono">${esc(w.socket_peer||'-')}</td></tr>

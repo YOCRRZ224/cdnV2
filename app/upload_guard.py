@@ -50,6 +50,25 @@ def _valid_ip(value: str | None) -> str | None:
         return None
 
 
+# Cloudflare's published edge ranges (https://www.cloudflare.com/ips/). A request that
+# really arrived through Cloudflare carries the visitor's address in CF-Connecting-IP.
+_CLOUDFLARE_NETS = [ipaddress.ip_network(n) for n in (
+    "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22", "104.16.0.0/13", "104.24.0.0/14",
+    "108.162.192.0/18", "131.0.72.0/22", "141.101.64.0/18", "162.158.0.0/15", "172.64.0.0/13",
+    "173.245.48.0/20", "188.114.96.0/20", "190.93.240.0/20", "197.234.240.0/22", "198.41.128.0/17",
+    "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32", "2405:b500::/32", "2405:8100::/32",
+    "2a06:98c0::/29", "2c0f:f248::/32",
+)]
+
+
+def is_cloudflare_ip(value: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return any(ip.version == n.version and ip in n for n in _CLOUDFLARE_NETS)
+
+
 def is_public_ip(value: str) -> bool:
     try:
         return ipaddress.ip_address(value).is_global
@@ -78,6 +97,13 @@ def get_client_ip(request: Request) -> str:
         while public_parts and not is_public_ip(public_parts[-1]):
             public_parts.pop()
         parts = public_parts or parts
+        # The last remaining entry is the address that actually connected to the platform
+        # (appended by it, so the visitor can't forge it). If that is a Cloudflare edge, the
+        # request really came through Cloudflare and CF-Connecting-IP is genuine.
+        if parts and is_cloudflare_ip(parts[-1]):
+            ip = _valid_ip(request.headers.get("cf-connecting-ip"))
+            if ip:
+                return ip
         if parts:
             idx = len(parts) - TRUSTED_PROXY_HOPS
             ip = _valid_ip(parts[idx] if idx >= 0 else parts[0])

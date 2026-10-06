@@ -4,7 +4,7 @@ services:
     env: docker
     plan: free
     envVars:
-      - key: HF_REPO_ID
+      - key: HF_BUCKET_ID
         value: notamitgamer/cdn
 
       - key: HF_TOKEN
@@ -15,3 +15,12 @@ services:
 
       - key: RAW_BASE_URL
         value: https://raw.cdn.amit.is-a.dev
+
+      # Admin dashboard at /admin. Leave unset to switch the dashboard, bans and
+      # the GitHub allowlist off. ADMIN_DATA_KEY encrypts the saved state in the
+      # bucket; set it separately so rotating ADMIN_TOKEN doesn't lock you out of it.
+      - key: ADMIN_TOKEN
+        sync: false
+
+      - key: ADMIN_DATA_KEY
+        sync: false

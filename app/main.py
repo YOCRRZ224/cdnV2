@@ -30,15 +30,20 @@ from .storage import (
     search_files,
     write_batch_manifest,
     get_batch_manifest,
-    HF_REPO_ID,
+    HF_BUCKET_ID,
+    bucket_url,
+    auth_headers,
     format_size,
 )
 from .gh_oidc import verify_actions_token
 from .shortener import shorten_url, get_destination_url
-from .upload_guard import router as upload_guard_router, get_client_ip, inspect_upload, record_upload
+from .upload_guard import get_client_ip, inspect_upload, is_video_upload
+from .stats import router as stats_router
+from .admin import router as admin_router, record_upload, is_banned, gh_check, gh_record
 
 app = FastAPI()
-app.include_router(upload_guard_router)
+app.include_router(admin_router)
+app.include_router(stats_router)
 templates = Jinja2Templates(directory="app/templates")
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -146,9 +151,9 @@ def _resolve_content_type(filename: str, upstream_content_type: str | None) -> s
     return upstream_content_type
 
 async def stream_raw(path: str, request: Request):
-    hf_url = f"https://huggingface.co/datasets/{HF_REPO_ID}/resolve/main/{path}"
+    hf_url = bucket_url(path)
     client = httpx.AsyncClient(follow_redirects=True)
-    req_headers = {}
+    req_headers = dict(auth_headers())
     range_header = request.headers.get("range")
     if range_header:
         req_headers["Range"] = range_header
@@ -184,9 +189,9 @@ async def stream_raw(path: str, request: Request):
 
 @app.get("/api/get/{path:path}")
 async def download_file(path: str, request: Request):
-    hf_url = f"https://huggingface.co/datasets/{HF_REPO_ID}/resolve/main/{path}"
+    hf_url = bucket_url(path)
     client = httpx.AsyncClient(follow_redirects=True)
-    req_headers = {}
+    req_headers = dict(auth_headers())
     range_header = request.headers.get("range")
     if range_header:
         req_headers["Range"] = range_header
@@ -253,6 +258,38 @@ class _UploadRateLimiter:
 
 
 _upload_limiter = _UploadRateLimiter()
+
+
+class _CountRateLimiter:
+    """Sliding-window request counter per key (e.g. per client IP)."""
+
+    def __init__(self, per_minute: int, per_hour: int):
+        self.per_minute = per_minute
+        self.per_hour = per_hour
+        self._hits: dict[str, deque] = {}
+
+    def check_and_record(self, key: str):
+        now = time.time()
+        dq = self._hits.setdefault(key, deque())
+        while dq and now - dq[0] > 3600:
+            dq.popleft()
+        if sum(1 for t in dq if now - t <= 60) >= self.per_minute:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded: {self.per_minute} requests/minute. Try again shortly.",
+            )
+        if len(dq) >= self.per_hour:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded: {self.per_hour} requests/hour. Try again later.",
+            )
+        dq.append(now)
+        if len(self._hits) > 10000:
+            self._hits = {k: v for k, v in self._hits.items() if v and now - v[-1] <= 3600}
+
+
+_shorten_limiter = _CountRateLimiter(per_minute=10, per_hour=60)
+SHORTEN_MAX_URL_LENGTH = 2048
 BATCH_MIN_FILES = 2
 ALLOWED_UPLOAD_FOLDERS = {"uploads", "third-party"}
 
@@ -278,7 +315,7 @@ async def handle_upload(
     results = []
 
     for file in files:
-        temp_path = f"/tmp/{uuid.uuid4()}-{file.filename}"
+        temp_path = f"/tmp/{uuid.uuid4()}"
 
         with open(temp_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
@@ -372,6 +409,10 @@ async def gh_sync(
     owner, repo = claims["owner"], claims["repo"]
     client_ip = get_client_ip(request)
 
+    if await is_banned(client_ip):
+        raise HTTPException(status_code=403, detail="You are banned from this CDN.")
+    await gh_check(owner, claims["owner_id"])
+
     contents = await archive.read()
     _gh_sync_limiter.check_and_record(
         f"gh-sync:{owner}/{repo}:{client_ip}",
@@ -393,11 +434,22 @@ async def gh_sync(
                 detail="Could not read archive (expected a .tar.gz).",
             )
 
+        for root, _dirs, names in os.walk(tmp_extract):
+            for name in names:
+                full = os.path.join(root, name)
+                if is_video_upload(name, full):
+                    raise HTTPException(
+                        status_code=415,
+                        detail=f"Video files are not allowed on this CDN (found {name}). Nothing was synced.",
+                    )
+
         dest_prefix = await upload_folder_scoped(
             tmp_extract,
             owner,
             repo,
         )
+
+    await gh_record(owner, claims["owner_id"], repo, claims["actor"], client_ip, len(contents), dest_prefix)
 
     return {
         "synced_to": dest_prefix,
@@ -421,6 +473,15 @@ class ShortenRequest(BaseModel):
 @app.post("/api/shorten")
 async def api_shorten(request: Request, body: ShortenRequest):
     url = body.url.strip()
+    if len(url) > SHORTEN_MAX_URL_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"URL too long (max {SHORTEN_MAX_URL_LENGTH} characters).",
+        )
+    client_ip = get_client_ip(request)
+    if await is_banned(client_ip):
+        raise HTTPException(status_code=403, detail="You are banned from this CDN.")
+    _shorten_limiter.check_and_record(client_ip)
     _assert_public_url(url)
     short_id = await shorten_url(url)
 
@@ -520,7 +581,7 @@ async def handle_upload_from_url(
         or f"download-{uuid.uuid4().hex[:8]}"
     )
 
-    temp_path = f"/tmp/{uuid.uuid4()}-{filename}"
+    temp_path = f"/tmp/{uuid.uuid4()}"
     downloaded = 0
 
     async with httpx.AsyncClient(
@@ -547,7 +608,6 @@ async def handle_upload_from_url(
 
                 if "filename=" in cd:
                     filename = cd.split("filename=")[-1].strip('"; ') or filename
-                    temp_path = f"/tmp/{uuid.uuid4()}-{filename}"
 
                 with open(temp_path, "wb") as f:
                     async for chunk in r.aiter_bytes():
@@ -670,13 +730,10 @@ async def download_zip(path: str):
     semaphore = asyncio.Semaphore(ZIP_FETCH_CONCURRENCY)
 
     async def fetch(client: httpx.AsyncClient, f: dict):
-        hf_url = (
-            f"https://huggingface.co/datasets/"
-            f"{HF_REPO_ID}/resolve/main/{f['path']}"
-        )
+        hf_url = bucket_url(f["path"])
 
         async with semaphore:
-            r = await client.get(hf_url)
+            r = await client.get(hf_url, headers=auth_headers())
 
         return f, r
 
@@ -714,7 +771,7 @@ async def download_zip(path: str):
     zip_filename = (
         clean_path.rstrip("/").split("/")[-1]
         if clean_path
-        else HF_REPO_ID.split("/")[-1]
+        else HF_BUCKET_ID.split("/")[-1]
     ) + ".zip"
 
     return StreamingResponse(
@@ -818,13 +875,10 @@ async def download_zip_batch(batch_id: str):
     semaphore = asyncio.Semaphore(ZIP_FETCH_CONCURRENCY)
 
     async def fetch(client: httpx.AsyncClient, f: dict):
-        hf_url = (
-            f"https://huggingface.co/datasets/"
-            f"{HF_REPO_ID}/resolve/main/{f['hf_path']}"
-        )
+        hf_url = bucket_url(f["hf_path"])
 
         async with semaphore:
-            r = await client.get(hf_url)
+            r = await client.get(hf_url, headers=auth_headers())
 
         return f, r
 

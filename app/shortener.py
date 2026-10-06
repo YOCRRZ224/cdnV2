@@ -1,15 +1,10 @@
-import os
-import io
 import random
 import string
 import asyncio
 import re
 import httpx
-from huggingface_hub import HfApi
 
-HF_REPO_ID = os.getenv("HF_REPO_ID", "notamitgamer/cdn")
-HF_TOKEN = os.getenv("HF_TOKEN")
-api = HfApi(token=HF_TOKEN) if HF_TOKEN else None
+from .storage import HF_TOKEN, bucket_url, auth_headers, _do_upload_bytes
 
 # Reusable HTTP client for fast connection pooling & HTTP keep-alive
 _client = httpx.AsyncClient(follow_redirects=True, timeout=10.0)
@@ -22,8 +17,8 @@ def generate_id(length: int = 8) -> str:
     return "".join(random.choices(chars, k=length))
 
 async def shorten_url(destination_url: str) -> str:
-    """Save a destination URL under an in-memory byte payload to Hugging Face."""
-    if not api:
+    """Save a destination URL as a tiny object in the Hugging Face bucket."""
+    if not HF_TOKEN:
         raise RuntimeError("HF_TOKEN is not configured.")
 
     destination_url = destination_url.strip()
@@ -32,8 +27,7 @@ async def shorten_url(destination_url: str) -> str:
     attempts = 0
     while True:
         short_id = generate_id()
-        hf_url = f"https://huggingface.co/datasets/{HF_REPO_ID}/resolve/main/_shortened/{short_id}"
-        r = await _client.head(hf_url)
+        r = await _client.head(bucket_url(f"_shortened/{short_id}"), headers=auth_headers())
         if r.status_code == 404:
             break
         attempts += 1
@@ -42,31 +36,22 @@ async def shorten_url(destination_url: str) -> str:
             short_id = generate_id(length=12)
             break
 
-    # Upload directly from memory without writing to disk
-    payload = io.BytesIO(destination_url.encode("utf-8"))
-
-    def _upload():
-        api.upload_file(
-            path_or_fileobj=payload,
-            path_in_repo=f"_shortened/{short_id}",
-            repo_id=HF_REPO_ID,
-            repo_type="dataset",
-            token=HF_TOKEN,
-            commit_message=f"shorten: {short_id}",
-        )
-
-    await asyncio.to_thread(_upload)
+    # Upload straight from memory without writing to disk
+    await asyncio.to_thread(
+        _do_upload_bytes,
+        destination_url.encode("utf-8"),
+        f"_shortened/{short_id}",
+    )
     return short_id
 
 async def get_destination_url(short_id: str) -> str | None:
-    """Look up the destination URL directly from Hugging Face resolve endpoints."""
+    """Look up the destination URL directly from the bucket's resolve endpoint."""
     short_id = short_id.strip().lower()
     if not _ID_REGEX.match(short_id):
         return None
 
-    hf_url = f"https://huggingface.co/datasets/{HF_REPO_ID}/resolve/main/_shortened/{short_id}"
     try:
-        r = await _client.get(hf_url)
+        r = await _client.get(bucket_url(f"_shortened/{short_id}"), headers=auth_headers())
         if r.status_code == 200:
             return r.text.strip()
     except httpx.RequestError:

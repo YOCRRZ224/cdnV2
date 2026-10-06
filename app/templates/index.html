@@ -1134,14 +1134,10 @@
                 const allFiles = Array.from(fileList);
                 const files = [];
                 const rejectedSize = [];
-                const rejectedName = [];
-                const allowedNameRegex = /^[a-zA-Z0-9_.\-]+$/;
 
                 allFiles.forEach(f => {
                     if (f.size > MAX_FILE_SIZE_BYTES) {
                         rejectedSize.push(f.name);
-                    } else if (!allowedNameRegex.test(f.name)) {
-                        rejectedName.push(f.name);
                     } else {
                         files.push(f);
                     }
@@ -1150,9 +1146,6 @@
                 const errorMessages = [];
                 if (rejectedSize.length) {
                     errorMessages.push(`Skipped ${rejectedSize.length} file(s) over ${formatBytes(MAX_FILE_SIZE_BYTES)}: ${rejectedSize.join(', ')}`);
-                }
-                if (rejectedName.length) {
-                    errorMessages.push(`Skipped ${rejectedName.length} file(s) with invalid characters (only a-z, A-Z, 0-9, _, -, . allowed): ${rejectedName.join(', ')}`);
                 }
 
                 if (errorMessages.length) {

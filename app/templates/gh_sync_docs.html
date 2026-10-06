@@ -190,7 +190,10 @@ jobs:
 
   <h2>Notes</h2>
   <ul>
-    <li>Any file type is accepted, and there's currently no limit on file size or on how many files a sync can push — send the whole repo as-is.</li>
+    <li>Any file type except video is accepted (a sync containing a video is rejected as a whole), and there's currently no limit on file size or on how many files a sync can push — send the whole repo as-is.</li>
+    <li><strong>First sync is free, later ones need approval.</strong> The first sync from a new GitHub account
+        goes through immediately. After that, further syncs from that account are refused until the CDN owner
+        approves it. Accounts that upload abusive content are banned.</li>
     <li>Each sync fully replaces the contents of <em>your own</em> <code>username/repo</code> folder only
         (delete-then-upload), so removed files disappear from the CDN too. No other folder is ever touched.</li>
     <li>Change <code>branches: [ main ]</code> to whichever branch you want mirrored.</li>

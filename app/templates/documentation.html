@@ -179,7 +179,7 @@
       <h3>How it works</h3>
       <p>Each file is streamed to a local temp path, checked against the rate limiter (50&nbsp;MB/minute, 300&nbsp;MB/hour
          per client IP), then uploaded to Hugging Face at <code>&lt;folder&gt;/&lt;8-char-uuid&gt;-&lt;original-filename&gt;</code>
-         (spaces in the filename become underscores). The random prefix means two uploads can never collide, and the
+         (any characters other than letters, digits, <code>.</code>, <code>_</code> and <code>-</code> become underscores, and accents are simplified). The random prefix means two uploads can never collide, and the
          filename portion is still readable. If 2 or more files were uploaded together, a <em>batch</em> is also created
          (see <a href="#batches">Batches</a> below) so the whole set can be shared/downloaded as one link.</p>
       <h3>Response <code>200</code></h3>

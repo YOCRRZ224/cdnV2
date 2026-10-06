@@ -18,6 +18,7 @@ import os
 import time
 import uuid
 from collections import deque
+from urllib.parse import unquote, urlparse
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
@@ -228,13 +229,31 @@ async def admin_page():
     return HTMLResponse(_PAGE, headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"})
 
 
+def _search(q: str) -> list:
+    """Case-insensitive search over file name, CDN path, IP, GitHub repo/actor, method and status.
+    Every word must match. A pasted CDN link works too (only its path is used)."""
+    q = (q or "").strip()
+    if q.lower().startswith(("http://", "https://")):
+        q = unquote(urlparse(q).path).strip("/")
+    terms = q.lower().split()
+    if not terms:
+        return _state["log"]
+    out = []
+    for r in _state["log"]:
+        hay = " ".join((r["name"], r["path"], r["ip"], r["method"], r["status"], r.get("extra", ""))).lower()
+        if all(t in hay for t in terms):
+            out.append(r)
+    return out
+
+
 @router.get("/api/admin/state")
-async def admin_state(request: Request):
+async def admin_state(request: Request, q: str = ""):
     _require_admin(request)
     await ensure_loaded()
     from .upload_guard import get_client_ip, is_cloudflare_ip, is_public_ip, TRUST_CF_CONNECTING_IP, TRUSTED_PROXY_HOPS
     h = request.headers
     me = get_client_ip(request)
+    rows = _search(q)
     return {
         "whoami": {
             "detected": me, "ok": is_public_ip(me) and not is_cloudflare_ip(me),
@@ -243,7 +262,7 @@ async def admin_state(request: Request):
             "trust_cf_header": TRUST_CF_CONNECTING_IP, "proxy_hops": TRUSTED_PROXY_HOPS,
         },
         "now": int(time.time()), "error": _load_error,
-        "log": _state["log"][-300:][::-1], "bans": _state["bans"],
+        "log": rows[-300:][::-1], "matched": len(rows), "total": len(_state["log"]), "bans": _state["bans"],
         "gh": sorted(_state["gh"].items(), key=lambda kv: kv[1].get("last", 0), reverse=True),
         "always_allow": sorted(GH_ALWAYS_ALLOW),
     }
@@ -327,12 +346,17 @@ a{color:#58a6ff;text-decoration:none}
 </style></head><body>
 <h1>CDN admin</h1>
 <div id="login"><input id="tok" type="password" placeholder="Admin token" autocomplete="off"> <button onclick="go()">Open</button> <span id="lerr" class="bad"></span></div>
-<div id="app" style="display:none"></div>
+<div id="app" style="display:none">
+<div id="top"></div>
+<h2>Recent uploads</h2>
+<p><input id="q" type="search" placeholder="Search file name, link, IP, GitHub repo, status..." autocomplete="off"> <span id="qinfo" class="dim"></span></p>
+<div class="wrap" id="uploads"></div>
+</div>
 <script>
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=t=>new Date(t*1000).toLocaleString();
 const sz=n=>n>=1048576?(n/1048576).toFixed(1)+' MB':n>=1024?(n/1024).toFixed(1)+' KB':n+' B';
-let T=sessionStorage.getItem('t')||'',timer=null;
+let T=sessionStorage.getItem('t')||'',timer=null,Q='',qt=null;
 document.getElementById('tok').value='';
 async function api(p,body){
   const r=await fetch(p,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+T,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
@@ -348,7 +372,7 @@ document.addEventListener('click',async e=>{
 });
 async function load(first){
   try{
-    const s=await api('/api/admin/state');
+    const s=await api('/api/admin/state?q='+encodeURIComponent(Q));
     document.getElementById('login').style.display='none';document.getElementById('app').style.display='block';
     render(s);if(!timer)timer=setInterval(load,20000);
   }catch(e){
@@ -385,7 +409,8 @@ function render(s){
   h+='<h2>Banned IPs</h2><div class="wrap"><table><tr><th>IP</th><th>Since</th><th>Note</th><th></th></tr>';
   for(const ip in banned)h+=`<tr><td class="mono">${esc(ip)}</td><td>${fmt(banned[ip].t)}</td><td>${esc(banned[ip].note)}</td><td>${btn('Unban','','/api/admin/unban',{ip})}</td></tr>`;
   if(!Object.keys(banned).length)h+='<tr><td colspan="4" class="dim">None.</td></tr>';
-  h+='</table></div><h2>Recent uploads</h2><div class="wrap"><table><tr><th>Time</th><th>IP</th><th>File</th><th>Size</th><th>Via</th><th>Status</th><th></th></tr>';
+  document.getElementById('top').innerHTML=h+'</table></div>';
+  h='<table><tr><th>Time</th><th>IP</th><th>File</th><th>Size</th><th>Via</th><th>Status</th><th></th></tr>';
   for(const r of s.log){
     const st=r.status==='ok'?'ok':r.status==='deleted'?'dim':'bad',live=r.path&&r.status==='ok';
     h+=`<tr><td>${fmt(r.t)}</td><td class="mono" title="${esc(r.ua)}">${esc(r.ip)}</td>
@@ -393,9 +418,10 @@ function render(s){
     <td>${sz(r.size)}</td><td>${esc(r.method)}</td><td class="${st}">${esc(r.status)}</td>
     <td>${r.method==='github'?'':r.ip in banned?'<span class="dim">banned</span>':btn('Ban IP','red','/api/admin/ban',{ip:r.ip},'Ban '+r.ip+'?')}${live?btn('Delete','red','/api/admin/delete',{path:r.path},'Delete '+r.path+' from the CDN?'):''}</td></tr>`;
   }
-  if(!s.log.length)h+='<tr><td colspan="7" class="dim">No uploads recorded yet.</td></tr>';
-  h+='</table></div>';
-  document.getElementById('app').innerHTML=h;
+  if(!s.log.length)h+=`<tr><td colspan="7" class="dim">${Q?'Nothing matches your search.':'No uploads recorded yet.'}</td></tr>`;
+  document.getElementById('uploads').innerHTML=h+'</table>';
+  document.getElementById('qinfo').textContent=Q?`${s.matched} match${s.matched===1?'':'es'} of ${s.total}${s.matched>s.log.length?' (showing newest '+s.log.length+')':''}`:`${s.total} saved`;
 }
+document.getElementById('q').addEventListener('input',e=>{clearTimeout(qt);qt=setTimeout(()=>{Q=e.target.value.trim();load()},250)});
 if(T)load(true);
 </script></body></html>"""

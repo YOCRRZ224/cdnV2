@@ -368,7 +368,7 @@ function render(s){
     h+=`<tr><td>${fmt(r.t)}</td><td class="mono" title="${esc(r.ua)}">${esc(r.ip)}</td>
     <td>${live?`<a href="/${encodeURI(r.path)}" target="_blank" rel="noopener">${esc(r.name)}</a>`:esc(r.name)}${r.extra?`<div class="dim">${esc(r.extra)}</div>`:''}</td>
     <td>${sz(r.size)}</td><td>${esc(r.method)}</td><td class="${st}">${esc(r.status)}</td>
-    <td>${r.ip in banned?'<span class="dim">banned</span>':btn('Ban IP','red','/api/admin/ban',{ip:r.ip},'Ban '+r.ip+'?')}${live?btn('Delete','red','/api/admin/delete',{path:r.path},'Delete '+r.path+' from the CDN?'):''}</td></tr>`;
+    <td>${r.method==='github'?'':r.ip in banned?'<span class="dim">banned</span>':btn('Ban IP','red','/api/admin/ban',{ip:r.ip},'Ban '+r.ip+'?')}${live?btn('Delete','red','/api/admin/delete',{path:r.path},'Delete '+r.path+' from the CDN?'):''}</td></tr>`;
   }
   if(!s.log.length)h+='<tr><td colspan="7" class="dim">No uploads recorded yet.</td></tr>';
   h+='</table></div>';
